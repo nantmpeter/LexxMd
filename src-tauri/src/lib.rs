@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod markdown;
 
 pub fn run() {
     tauri::Builder::default()
@@ -7,6 +8,8 @@ pub fn run() {
             commands::file_read,
             commands::file_write,
             commands::get_app_data_dir,
+            commands::file_open_dialog,
+            commands::file_save_dialog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

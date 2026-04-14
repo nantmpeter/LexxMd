@@ -13,15 +13,55 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { createEditor } from './editor/index'
 import Toolbar from './ui/Toolbar.vue'
 import StatusBar from './ui/StatusBar.vue'
+import { fileWrite, saveFileDialog, fileRead } from './tauri/commands'
 
 const editorEl = ref<HTMLElement | null>(null)
 const editor = ref<ReturnType<typeof createEditor> | null>(null)
 const filename = ref('Untitled.md')
+const filePath = ref<string | null>(null)
 const dirty = ref(false)
+
+async function handleSave() {
+  if (!editor.value) return
+
+  const content = editor.value.storage.markdown?.getMarkdown?.() ?? editor.value.getText()
+
+  if (filePath.value) {
+    // Save to existing file path
+    try {
+      await fileWrite(filePath.value, content)
+      dirty.value = false
+    } catch (e) {
+      console.error('Failed to save file:', e)
+    }
+  } else {
+    // No file path yet -- open save dialog
+    try {
+      const chosenPath = await saveFileDialog(filename.value)
+      if (chosenPath) {
+        await fileWrite(chosenPath, content)
+        filePath.value = chosenPath
+        // Extract filename from path
+        const parts = chosenPath.split('/')
+        filename.value = parts[parts.length - 1] || 'Untitled.md'
+        dirty.value = false
+      }
+    } catch (e) {
+      console.error('Failed to save file:', e)
+    }
+  }
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault()
+    handleSave()
+  }
+}
 
 onMounted(() => {
   if (editorEl.value) {
@@ -31,6 +71,12 @@ onMounted(() => {
       dirty.value = true
     })
   }
+
+  window.addEventListener('keydown', onKeyDown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
 })
 </script>
 

@@ -1,0 +1,308 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #ffffff;
+  color: #24292e;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── ProseMirror Editor ──────────────────────────────────── */
+
+.ProseMirror {
+  outline: none;
+  min-height: 100%;
+  font-size: 16px;
+  line-height: 1.75;
+  color: #24292e;
+}
+
+.ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+
+/* ── Headings ─────────────────────────────────────────────── */
+
+.ProseMirror h1 {
+  font-size: 2em;
+  font-weight: 700;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.25;
+  border-bottom: 1px solid #e1e4e8;
+  padding-bottom: 0.3em;
+}
+.ProseMirror h2 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+  border-bottom: 1px solid #e1e4e8;
+  padding-bottom: 0.3em;
+}
+.ProseMirror h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+}
+.ProseMirror h4 { font-size: 1em; font-weight: 600; margin-top: 1em; }
+
+/* ── Dual-Mode: Edit Mode Wrapper ────────────────────────── */
+
+.edit-mode-wrapper {
+  display: none;
+  position: relative;
+}
+
+.ProseMirror:focus-within .edit-mode-wrapper,
+.edit-mode .edit-mode-wrapper {
+  display: inline;
+}
+
+.md-prefix {
+  color: #999;
+  font-weight: normal;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ── Inline Marks — Edit Mode Show Markers ───────────────── */
+
+.ProseMirror.edit-mode strong::before { content: '**'; color: #999; }
+.ProseMirror.edit-mode strong::after  { content: '**'; color: #999; }
+.ProseMirror.edit-mode em::before     { content: '*'; color: #999; }
+.ProseMirror.edit-mode em::after      { content: '*'; color: #999; }
+.ProseMirror.edit-mode s::before      { content: '~~'; color: #999; }
+.ProseMirror.edit-mode s::after       { content: '~~'; color: #999; }
+
+.ProseMirror.render-mode strong::before,
+.ProseMirror.render-mode strong::after,
+.ProseMirror.render-mode em::before,
+.ProseMirror.render-mode em::after,
+.ProseMirror.render-mode s::before,
+.ProseMirror.render-mode s::after {
+  content: '';
+}
+
+/* ── Inline marks visual ──────────────────────────────────── */
+.ProseMirror strong { font-weight: 700; }
+.ProseMirror em { font-style: italic; }
+.ProseMirror s { text-decoration: line-through; color: #6a737d; }
+.ProseMirror code {
+  background: #f6f8fa;
+  border-radius: 3px;
+  padding: 0.15em 0.4em;
+  font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.875em;
+  color: #032f62;
+}
+.ProseMirror a {
+  color: #0366d6;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ProseMirror a:hover { text-decoration: underline; }
+
+/* ── Block Elements ───────────────────────────────────────── */
+
+.ProseMirror blockquote {
+  border-left: 4px solid #dfe2e5;
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  color: #6a737d;
+  background: #f6f8fa;
+  border-radius: 0 6px 6px 0;
+}
+
+.ProseMirror blockquote::before {
+  content: '> ';
+  color: #999;
+  font-weight: normal;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 2px solid #e1e4e8;
+  margin: 2em 0;
+}
+
+/* ── Lists ───────────────────────────────────────────────── */
+
+.ProseMirror ul, .ProseMirror ol {
+  padding-left: 1.75em;
+  margin: 0.75em 0;
+}
+.ProseMirror li { margin: 0.3em 0; }
+.ProseMirror li p { margin: 0; }
+
+/* Task lists */
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+.ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 0.25em;
+}
+.ProseMirror ul[data-type="taskList"] li > div { flex: 1; }
+
+/* ── Code Blocks ──────────────────────────────────────────── */
+
+.ProseMirror pre {
+  background: #1e1e1e;
+  border-radius: 6px;
+  padding: 1em 1.25em;
+  margin: 1em 0;
+  overflow-x: auto;
+  position: relative;
+}
+
+.ProseMirror pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875em;
+  color: #d4d4d4;
+  font-family: 'Fira Code', Consolas, 'Courier New', monospace;
+  border-radius: 0;
+}
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid #dfe2e5;
+}
+.ProseMirror td,
+.ProseMirror th {
+  border: 1px solid #dfe2e5;
+  padding: 0.5em 0.75em;
+  vertical-align: top;
+  min-width: 100px;
+  position: relative;
+}
+.ProseMirror th {
+  background: #f6f8fa;
+  font-weight: 600;
+  text-align: left;
+}
+.ProseMirror .selectedCell:after {
+  background: rgba(3, 102, 214, 0.1);
+  content: '';
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+/* ── Placeholder ────────────────────────────────────────── */
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: #adb5bd;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* ── Syntax Highlighting (lowlight / highlight.js themes) ─ */
+
+.hljs-comment, .hljs-quote { color: #6a737d; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag { color: #d73a49; }
+.hljs-string, .hljs-attr { color: #032f62; }
+.hljs-number, .hljs-literal { color: #005cc5; }
+.hljs-title, .hljs-section { color: #6f42c1; font-weight: bold; }
+.hljs-type { color: #e36209; }
+.hljs-built_in { color: #005cc5; }
+.hljs-variable { color: #24292e; }
+
+/* ── Toolbar ──────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 16px;
+  border-bottom: 1px solid #e1e4e8;
+  background: #f6f8fa;
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: #d1d5da;
+  margin: 0 6px;
+}
+
+.toolbar-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #444d56;
+  line-height: 1.4;
+  min-width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.toolbar-btn:hover {
+  background: #e1e4e8;
+  border-color: #d1d5da;
+}
+
+.toolbar-btn.is-active {
+  background: #c8e0f4;
+  border-color: #79b8ff;
+  color: #0366d6;
+}
+
+/* ── Status Bar ──────────────────────────────────────────── */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px;
+  border-top: 1px solid #e1e4e8;
+  background: #f6f8fa;
+  font-size: 12px;
+  color: #6a737d;
+  min-height: 28px;
+}
+
+.statusbar-left { display: flex; gap: 16px; }
+.statusbar-right { display: flex; gap: 16px; }
+.statusbar .dirty { color: #e36209; font-weight: 600; }
+.statusbar .clean { color: #28a745; }

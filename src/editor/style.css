@@ -55,17 +55,10 @@ html, body {
 }
 .ProseMirror h4 { font-size: 1em; font-weight: 600; margin-top: 1em; }
 
-/* ── Dual-Mode: Edit Mode Wrapper ────────────────────────── */
-
-.edit-mode-wrapper {
-  display: none;
-  position: relative;
-}
-
-.ProseMirror:focus-within .edit-mode-wrapper,
-.edit-mode .edit-mode-wrapper {
-  display: inline;
-}
+/* ── Dual-Mode: Per-Block Mode Switching ──────────────────── */
+/* Each block gets .block-edit-mode or .block-render-mode via
+   ProseMirror NodeDecorations (see dual-mode.ts).
+   Only the block containing the cursor shows Markdown markers. */
 
 .md-prefix {
   color: #999;
@@ -74,21 +67,86 @@ html, body {
   pointer-events: none;
 }
 
-/* ── Inline Marks — Edit Mode Show Markers ───────────────── */
+/* ── Inline Marks — Show Markers Only on Focused Block ──── */
 
-.ProseMirror.edit-mode strong::before { content: '**'; color: #999; }
-.ProseMirror.edit-mode strong::after  { content: '**'; color: #999; }
-.ProseMirror.edit-mode em::before     { content: '*'; color: #999; }
-.ProseMirror.edit-mode em::after      { content: '*'; color: #999; }
-.ProseMirror.edit-mode s::before      { content: '~~'; color: #999; }
-.ProseMirror.edit-mode s::after       { content: '~~'; color: #999; }
+.block-edit-mode strong::before { content: '**'; color: #999; }
+.block-edit-mode strong::after  { content: '**'; color: #999; }
+.block-edit-mode em::before     { content: '*'; color: #999; }
+.block-edit-mode em::after      { content: '*'; color: #999; }
+.block-edit-mode s::before      { content: '~~'; color: #999; }
+.block-edit-mode s::after       { content: '~~'; color: #999; }
 
-.ProseMirror.render-mode strong::before,
-.ProseMirror.render-mode strong::after,
-.ProseMirror.render-mode em::before,
-.ProseMirror.render-mode em::after,
-.ProseMirror.render-mode s::before,
-.ProseMirror.render-mode s::after {
+/* Inline code backtick markers in edit mode */
+.block-edit-mode code::before   { content: '`'; color: #999; }
+.block-edit-mode code::after    { content: '`'; color: #999; }
+
+/* Render mode: no markers */
+.block-render-mode strong::before,
+.block-render-mode strong::after,
+.block-render-mode em::before,
+.block-render-mode em::after,
+.block-render-mode s::before,
+.block-render-mode s::after,
+.block-render-mode code::before,
+.block-render-mode code::after {
+  content: '';
+}
+
+/* ── Block-Level Markers in Edit Mode ───────────────────── */
+
+/* Heading prefix: # ## ### etc. */
+.block-edit-mode h1::before { content: '# '; color: #999; font-weight: normal; }
+.block-edit-mode h2::before { content: '## '; color: #999; font-weight: normal; }
+.block-edit-mode h3::before { content: '### '; color: #999; font-weight: normal; }
+.block-edit-mode h4::before { content: '#### '; color: #999; font-weight: normal; }
+.block-edit-mode h5::before { content: '##### '; color: #999; font-weight: normal; }
+.block-edit-mode h6::before { content: '###### '; color: #999; font-weight: normal; }
+
+/* Render mode: no heading prefix */
+.block-render-mode h1::before,
+.block-render-mode h2::before,
+.block-render-mode h3::before,
+.block-render-mode h4::before,
+.block-render-mode h5::before,
+.block-render-mode h6::before {
+  content: '';
+}
+
+/* Blockquote prefix */
+.block-edit-mode blockquote::before {
+  content: '> ';
+  color: #999;
+  font-weight: normal;
+}
+
+.block-render-mode blockquote::before {
+  content: '';
+}
+
+/* Bullet list marker */
+.block-edit-mode ul > li::before {
+  content: '- ';
+  color: #999;
+  margin-left: -1.5em;
+}
+
+.block-render-mode ul > li::before {
+  content: '';
+}
+
+/* Ordered list marker */
+.block-edit-mode ol > li::marker {
+  content: counter(list-item) '. ';
+}
+
+/* Link URL in edit mode */
+.block-edit-mode a::after {
+  content: '(' attr(href) ')';
+  color: #999;
+  font-size: 0.85em;
+}
+
+.block-render-mode a::after {
   content: '';
 }
 
@@ -120,12 +178,6 @@ html, body {
   color: #6a737d;
   background: #f6f8fa;
   border-radius: 0 6px 6px 0;
-}
-
-.ProseMirror.edit-mode blockquote::before {
-  content: '> ';
-  color: #999;
-  font-weight: normal;
 }
 
 .ProseMirror hr {

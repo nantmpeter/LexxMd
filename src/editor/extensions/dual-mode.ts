@@ -1,30 +1,34 @@
-/**
- * IMPLEMENTATION SCOPE:
- * - Implemented: DualModeExtension that toggles .edit-mode / .render-mode CSS classes
- *   on the editor DOM element based on focus state
- * - Not implemented: Per-block mode tracking, heading prefix decorations,
- *   inline mark marker visibility per-block
- * - Pending: Future iteration may add ProseMirror decorations for heading/block
- *   prefix visibility at per-block granularity
- */
-
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 export const dualModePluginKey = new PluginKey('dualMode')
 
 /**
- * DualModeExtension:
- * Tracks cursor position to determine which block is focused.
- * Toggles .edit-mode / .render-mode CSS class on the editor DOM element.
+ * Find the position of the top-level block ancestor containing the cursor.
+ * Returns the absolute position before that block node.
+ */
+function getFocusedBlockPos(selection: { $from: { depth: number; node: (d: number) => any; before: (d: number) => number }; from: number }): number {
+  const { $from } = selection
+  for (let d = $from.depth; d > 0; d--) {
+    const node = $from.node(d)
+    if (node.isBlock && d === 1) {
+      return $from.before(d)
+    }
+  }
+  return 0
+}
+
+/**
+ * DualModeExtension — per-block edit/render mode switching (Typora-style).
  *
- * The actual visibility of Markdown markers is handled by CSS rules in style.css:
- * - .edit-mode shows ** * markers on inline marks via ::before/::after
- * - .render-mode hides them
- *
- * For block-level prefixes (# for headings, > for blockquotes, - for lists),
- * the CSS ::before pseudo-elements on blockquote handle the > prefix.
- * Heading prefixes will be handled by decorations in a future iteration.
+ * How it works:
+ * 1. A ProseMirror Plugin tracks the cursor position and finds which
+ *    top-level block node contains the cursor.
+ * 2. It uses ProseMirror NodeDecorations to apply `.block-edit-mode`
+ *    to the focused block and `.block-render-mode` to all other blocks.
+ * 3. CSS rules in style.css scope Markdown marker visibility to
+ *    `.block-edit-mode` only — so only the active block shows `**`, `#`, etc.
  */
 export const DualModeExtension = Extension.create({
   name: 'dualMode',
@@ -34,21 +38,27 @@ export const DualModeExtension = Extension.create({
       new Plugin({
         key: dualModePluginKey,
 
-        view() {
-          return {
-            update(view) {
-              const editorEl = view.dom
-              const hasFocus = view.hasFocus()
+        props: {
+          decorations(state) {
+            const { doc, selection } = state
+            const focusedPos = getFocusedBlockPos(selection)
+            const decorations: Decoration[] = []
 
-              if (hasFocus) {
-                editorEl.classList.add('edit-mode')
-                editorEl.classList.remove('render-mode')
-              } else {
-                editorEl.classList.remove('edit-mode')
-                editorEl.classList.add('render-mode')
-              }
-            },
-          }
+            // Iterate over top-level block children of the doc
+            doc.forEach((node: any, offset: number, _index: number) => {
+              const isFocused = offset === focusedPos
+              const className = isFocused
+                ? 'block-edit-mode'
+                : 'block-render-mode'
+              decorations.push(
+                Decoration.node(offset, offset + node.nodeSize, {
+                  class: className,
+                })
+              )
+            })
+
+            return DecorationSet.create(doc, decorations)
+          },
         },
       }),
     ]

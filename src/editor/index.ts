@@ -17,7 +17,7 @@ import Table from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { MermaidBlockExtension } from './extensions/mermaid-block'
 import { Markdown } from 'tiptap-markdown'
 import { createLowlight, common } from 'lowlight'
 import { DualModeExtension } from './extensions/dual-mode'
@@ -48,7 +48,7 @@ export function createEditor(element: HTMLElement) {
       TableRow,
       TableHeader,
       TableCell,
-      CodeBlockLowlight.configure({
+      MermaidBlockExtension.configure({
         lowlight,
         defaultLanguage: 'plaintext',
       }),
@@ -74,6 +74,17 @@ console.log(hello)
 \`\`\`
 
 > This is a blockquote. Cursor entering a block shows the Markdown source syntax.
+
+## Mermaid Diagrams
+
+\`\`\`mermaid
+graph TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Action 1]
+    B -->|No| D[Action 2]
+    C --> E[End]
+    D --> E
+\`\`\`
 `,
     editorProps: {
       attributes: {

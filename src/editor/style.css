@@ -301,6 +301,100 @@ html, body {
   pointer-events: none;
 }
 
+/* ── Mermaid Diagram Blocks ───────────────────────────────── */
+
+.mermaid-block-wrapper {
+  position: relative;
+  margin: 1em 0;
+}
+
+/* Edit mode: dark pre>code like normal code blocks */
+.mermaid-block-wrapper pre {
+  background: #1e1e1e;
+  border-radius: 6px;
+  padding: 1em 1.25em;
+  overflow-x: auto;
+  position: relative;
+}
+
+.mermaid-block-wrapper pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875em;
+  color: #d4d4d4;
+  font-family: 'Fira Code', Consolas, 'Courier New', monospace;
+  border-radius: 0;
+}
+
+/* Language badge */
+.mermaid-block-wrapper::before {
+  content: 'mermaid';
+  position: absolute;
+  top: 0.5em;
+  right: 0.75em;
+  font-size: 0.7em;
+  color: #6a737d;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  user-select: none;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Render container: centered SVG */
+.mermaid-render-container {
+  padding: 1.25em;
+  background: #ffffff;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  text-align: center;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mermaid-render-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Error state */
+.mermaid-error {
+  color: #cb2431;
+  background: #ffeef0;
+  border: 1px solid #fdaeb7;
+  border-radius: 4px;
+  padding: 0.75em 1em;
+  text-align: left;
+  font-size: 0.875em;
+  width: 100%;
+}
+
+.mermaid-error strong {
+  display: block;
+  margin-bottom: 0.4em;
+}
+
+.mermaid-error pre {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.8em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #86181d;
+}
+
+/* Empty diagram */
+.mermaid-empty {
+  color: #6a737d;
+  font-style: italic;
+  margin: 0;
+  font-size: 0.9em;
+}
+
 /* ── Toolbar ──────────────────────────────────────────────── */
 
 .toolbar {

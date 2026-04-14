@@ -235,6 +235,20 @@ html, body {
 .hljs-built_in { color: #005cc5; }
 .hljs-variable { color: #24292e; }
 
+/* Code block language badge */
+.code-block[data-language]::before {
+  content: attr(data-language);
+  position: absolute;
+  top: 0.5em;
+  right: 0.75em;
+  font-size: 0.7em;
+  color: #6a737d;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  user-select: none;
+  pointer-events: none;
+}
+
 /* ── Toolbar ──────────────────────────────────────────────── */
 
 .toolbar {

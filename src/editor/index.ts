@@ -85,6 +85,16 @@ graph TD
     C --> E[End]
     D --> E
 \`\`\`
+
+## Math Formulas
+
+\`\`\`math
+E = mc^2
+\`\`\`
+
+\`\`\`math
+\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
+\`\`\`
 `,
     editorProps: {
       attributes: {

@@ -1,5 +1,4 @@
 pub mod commands;
-pub mod markdown;
 
 pub fn run() {
     tauri::Builder::default()

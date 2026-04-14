@@ -2,8 +2,11 @@ import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import type { NodeViewRendererProps } from '@tiptap/core'
 import type { NodeView as ProseMirrorNodeView } from '@tiptap/pm/view'
 import mermaid from 'mermaid'
+import katex from 'katex'
 
-// ── Mermaid singleton ──────────────────────────────────────────
+// ── Renderers ──────────────────────────────────────────────────
+
+// -- Mermaid --
 
 let mermaidReady = false
 
@@ -20,7 +23,7 @@ function initMermaid() {
 
 let svgIdCounter = 0
 
-async function renderMermaidToSVG(definition: string): Promise<{ svg: string } | { error: string }> {
+async function renderMermaid(definition: string): Promise<{ svg: string } | { error: string }> {
   initMermaid()
   const id = `mermaid-svg-${++svgIdCounter}`
   try {
@@ -31,6 +34,23 @@ async function renderMermaidToSVG(definition: string): Promise<{ svg: string } |
   }
 }
 
+// -- KaTeX --
+
+function renderKaTeX(latex: string, displayMode: boolean): { html: string } | { error: string } {
+  try {
+    const html = katex.renderToString(latex, {
+      displayMode,
+      throwOnError: true,
+      trust: true,
+    })
+    return { html }
+  } catch (err: any) {
+    return { error: err?.message ?? String(err) }
+  }
+}
+
+// ── Shared helpers ─────────────────────────────────────────────
+
 function escapeHTML(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -39,97 +59,143 @@ function escapeHTML(str: string): string {
     .replace(/"/g, '&quot;')
 }
 
-// ── Mermaid NodeView ───────────────────────────────────────────
+function getModeFromDeco(outerDeco: readonly any[]): 'edit' | 'render' | null {
+  for (const deco of outerDeco) {
+    const cls = deco?.type?.attrs?.class ?? ''
+    if (cls.includes('block-edit-mode')) return 'edit'
+    if (cls.includes('block-render-mode')) return 'render'
+  }
+  return null
+}
 
-function createMermaidNodeView(props: NodeViewRendererProps): ProseMirrorNodeView {
-  const { node } = props
+function getModeFromDOM(wrapper: HTMLElement): 'edit' | 'render' | null {
+  if (wrapper.classList.contains('block-edit-mode')) return 'edit'
+  if (wrapper.classList.contains('block-render-mode')) return 'render'
+  return null
+}
 
-  // Wrapper div — receives .block-edit-mode / .block-render-mode from DualModeExtension
+// ── Rich code block NodeView (mermaid / math) ──────────────────
+
+/** Languages that get rich rendering instead of plain syntax highlighting. */
+const RICH_LANGUAGES = new Set(['mermaid', 'math', 'latex', 'katex'])
+
+function createRichCodeBlockNodeView(props: NodeViewRendererProps): ProseMirrorNodeView {
+  const { node, view, getPos } = props
+  const lang = node.attrs.language ?? ''
+
   const wrapper = document.createElement('div')
-  wrapper.setAttribute('data-language', 'mermaid')
-  wrapper.setAttribute('data-type', 'mermaid-block')
-  wrapper.classList.add('mermaid-block-wrapper')
+  wrapper.setAttribute('data-language', lang)
+  wrapper.setAttribute('data-type', 'rich-code-block')
+  wrapper.classList.add('rich-block-wrapper')
 
-  // Edit container: pre > code with contenteditable text
   const editContainer = document.createElement('pre')
   const codeEl = document.createElement('code')
-  codeEl.classList.add('language-mermaid')
+  codeEl.classList.add(`language-${lang}`)
   editContainer.appendChild(codeEl)
   wrapper.appendChild(editContainer)
 
-  // Render container: holds the rendered SVG
   const renderContainer = document.createElement('div')
-  renderContainer.classList.add('mermaid-render-container')
+  renderContainer.classList.add('rich-render-container')
   renderContainer.style.display = 'none'
   wrapper.appendChild(renderContainer)
 
-  // State
   let lastRenderedSource = ''
   let renderTimeout: ReturnType<typeof setTimeout> | null = null
+  let currentMode: 'edit' | 'render' | null = null
 
-  async function renderDiagram() {
-    // Read text from the actual node content
-    const source = node.textContent
+  function getSource(): string {
+    const pos = getPos()
+    if (pos == null) return ''
+    const currentNode = view.state.doc.nodeAt(pos)
+    return currentNode?.textContent ?? ''
+  }
+
+  function renderContent() {
+    const source = getSource()
     if (source === lastRenderedSource && renderContainer.innerHTML) return
     lastRenderedSource = source
 
     if (!source.trim()) {
-      renderContainer.innerHTML = '<p class="mermaid-empty">Empty diagram</p>'
+      renderContainer.innerHTML = '<p class="rich-empty">Empty content</p>'
       return
     }
 
-    const result = await renderMermaidToSVG(source)
-    if ('error' in result) {
-      renderContainer.innerHTML = `<div class="mermaid-error"><strong>Mermaid syntax error</strong><pre>${escapeHTML(result.error)}</pre></div>`
+    if (lang === 'mermaid') {
+      renderMermaid(source).then(result => {
+        if ('error' in result) {
+          renderContainer.innerHTML = `<div class="rich-error"><strong>Mermaid syntax error</strong><pre>${escapeHTML(result.error)}</pre></div>`
+        } else {
+          renderContainer.innerHTML = result.svg
+          const svg = renderContainer.querySelector('svg')
+          if (svg) {
+            svg.removeAttribute('width')
+            svg.removeAttribute('style')
+          }
+        }
+      })
     } else {
-      renderContainer.innerHTML = result.svg
+      // KaTeX math
+      const result = renderKaTeX(source, true)
+      if ('error' in result) {
+        renderContainer.innerHTML = `<div class="rich-error"><strong>LaTeX syntax error</strong><pre>${escapeHTML(result.error)}</pre></div>`
+      } else {
+        renderContainer.innerHTML = result.html
+      }
     }
   }
 
   function scheduleRender() {
     if (renderTimeout) clearTimeout(renderTimeout)
-    renderTimeout = setTimeout(() => renderDiagram(), 300)
+    renderTimeout = setTimeout(() => renderContent(), 300)
   }
 
-  function setMode(editMode: boolean) {
-    if (editMode) {
+  function setMode(mode: 'edit' | 'render') {
+    if (mode === currentMode) return
+    currentMode = mode
+
+    if (mode === 'edit') {
       editContainer.style.display = ''
       renderContainer.style.display = 'none'
     } else {
       editContainer.style.display = 'none'
       renderContainer.style.display = ''
-      lastRenderedSource = '' // force re-render
+      lastRenderedSource = ''
       scheduleRender()
     }
   }
 
-  // Watch for DualModeExtension's class changes on this wrapper
-  const observer = new MutationObserver(() => {
-    if (wrapper.classList.contains('block-edit-mode')) {
-      setMode(true)
-    } else if (wrapper.classList.contains('block-render-mode')) {
-      setMode(false)
-    }
+  requestAnimationFrame(() => {
+    const mode = getModeFromDOM(wrapper)
+    if (mode) setMode(mode)
   })
-  observer.observe(wrapper, { attributes: true, attributeFilter: ['class'] })
 
   return {
     dom: wrapper,
     contentDOM: codeEl,
-    update(newNode: any) {
+
+    update(newNode: any, outerDeco: readonly any[]) {
       if (newNode.type.name !== node.type.name) return false
-      if (newNode.attrs.language !== 'mermaid') return false
-      lastRenderedSource = '' // invalidate cache
+      if (!RICH_LANGUAGES.has(newNode.attrs.language)) return false
+
+      const mode = getModeFromDeco(outerDeco)
+      if (mode) setMode(mode)
+
+      lastRenderedSource = ''
       return true
     },
+
+    ignoreMutation(mutation: any) {
+      if (mutation.target === codeEl || mutation.target.parentNode === codeEl) return false
+      return true
+    },
+
     destroy() {
-      observer.disconnect()
       if (renderTimeout) clearTimeout(renderTimeout)
     },
   }
 }
 
-// ── Default NodeView for non-mermaid code blocks ───────────────
+// ── Default NodeView for plain code blocks ─────────────────────
 
 function createDefaultCodeBlockNodeView(props: NodeViewRendererProps): ProseMirrorNodeView {
   const { node } = props
@@ -166,8 +232,8 @@ export const MermaidBlockExtension = CodeBlockLowlight.extend({
 
   addNodeView() {
     return (props: NodeViewRendererProps) => {
-      if (props.node.attrs.language === 'mermaid') {
-        return createMermaidNodeView(props)
+      if (RICH_LANGUAGES.has(props.node.attrs.language)) {
+        return createRichCodeBlockNodeView(props)
       }
       return createDefaultCodeBlockNodeView(props)
     }

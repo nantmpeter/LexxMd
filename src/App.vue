@@ -17,7 +17,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { createEditor } from './editor/index'
 import Toolbar from './ui/Toolbar.vue'
 import StatusBar from './ui/StatusBar.vue'
-import { fileWrite, saveFileDialog, fileRead } from './tauri/commands'
+import { fileWrite, saveFileDialog, fileRead, openFileDialog } from './tauri/commands'
 
 const editorEl = ref<HTMLElement | null>(null)
 const editor = ref<ReturnType<typeof createEditor> | null>(null)
@@ -56,10 +56,31 @@ async function handleSave() {
   }
 }
 
+async function handleOpen() {
+  if (!editor.value) return
+
+  try {
+    const result = await openFileDialog()
+    if (result) {
+      editor.value.commands.setContent(result.content)
+      filePath.value = result.path
+      const parts = result.path.split('/')
+      filename.value = parts[parts.length - 1] || 'Untitled.md'
+      dirty.value = false
+    }
+  } catch (e) {
+    console.error('Failed to open file:', e)
+  }
+}
+
 function onKeyDown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === 's') {
     e.preventDefault()
     handleSave()
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'o') {
+    e.preventDefault()
+    handleOpen()
   }
 }
 
@@ -77,6 +98,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
+  if (editor.value) {
+    editor.value.destroy()
+  }
 })
 </script>
 

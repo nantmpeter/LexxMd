@@ -18,6 +18,7 @@ import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { Markdown } from 'tiptap-markdown'
 import { createLowlight, common } from 'lowlight'
 import { DualModeExtension } from './extensions/dual-mode'
 
@@ -52,6 +53,11 @@ export function createEditor(element: HTMLElement) {
         defaultLanguage: 'plaintext',
       }),
       DualModeExtension,
+      Markdown.configure({
+        html: true,
+        breaks: true,
+        linkify: true,
+      }),
     ],
     content: `# Welcome to MDEditor
 

@@ -122,7 +122,7 @@ html, body {
   border-radius: 0 6px 6px 0;
 }
 
-.ProseMirror blockquote::before {
+.ProseMirror.edit-mode blockquote::before {
   content: '> ';
   color: #999;
   font-weight: normal;

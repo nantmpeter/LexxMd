@@ -2,16 +2,16 @@
  * ImagePaste — intercept clipboard paste with image data,
  * save the image to disk, and insert an Image node.
  *
- * Storage strategy:
- * - Saved file (has filePath): {file_dir}/assets/image-{ts}.png
- * - Untitled file: {app_data_dir}/temp/image-{ts}.png
+ * Images are saved alongside the .md file in an assets/ folder.
+ * For rendering in the webview, we use Tauri's convertFileSrc()
+ * to create a loadable URL. For markdown, we store the relative path.
  */
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { fileWriteBinary, getAppDataDir } from '../../tauri/commands'
 
 export interface ImagePasteOptions {
-  /** Called with the current file's directory path (or null for untitled) */
+  /** Returns the current file's full path (or null for untitled) */
   getFilePath: () => string | null
 }
 
@@ -20,13 +20,22 @@ function blobToBase64(blob: Blob): Promise<string> {
     const reader = new FileReader()
     reader.onloadend = () => {
       const result = reader.result as string
-      // Strip data URL prefix: "data:image/png;base64,..."
       const base64 = result.split(',')[1]
       resolve(base64)
     }
     reader.onerror = reject
     reader.readAsDataURL(blob)
   })
+}
+
+async function convertFileSrc(filePath: string): Promise<string> {
+  try {
+    const { convertFileSrc: tauriConvert } = await import('@tauri-apps/api/core')
+    return tauriConvert(filePath)
+  } catch {
+    // Fallback: return as-is (works in browser dev mode)
+    return filePath
+  }
 }
 
 export const ImagePaste = Extension.create<ImagePasteOptions>({
@@ -77,13 +86,11 @@ export const ImagePaste = Extension.create<ImagePasteOptions>({
                 let mdPath: string
 
                 if (filePath) {
-                  // Saved file: save to assets/ next to the .md file
                   const dir = filePath.split(/[/\\]/).slice(0, -1).join('/')
                   const assetsDir = dir + '/assets'
                   savePath = assetsDir + '/' + filename
                   mdPath = 'assets/' + filename
                 } else {
-                  // Untitled: save to app data temp dir
                   const appData = await getAppDataDir()
                   savePath = appData + '/temp/' + filename
                   mdPath = savePath
@@ -91,11 +98,17 @@ export const ImagePaste = Extension.create<ImagePasteOptions>({
 
                 await fileWriteBinary(savePath, base64)
 
-                // Insert image node at current cursor position
+                // Convert absolute path to webview-loadable URL
+                const assetUrl = await convertFileSrc(savePath)
+
                 const pos = view.state.selection.from
                 const node = view.state.schema.nodes.image
                 if (node) {
-                  const imageNode = node.create({ src: mdPath })
+                  // src: asset URL for rendering, data-md-src: relative path for markdown
+                  const imageNode = node.create({
+                    src: assetUrl,
+                    'data-md-src': mdPath,
+                  })
                   const tr = view.state.tr.insert(pos, imageNode)
                   view.dispatch(tr)
                 }

@@ -19,11 +19,12 @@ import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
 import { MermaidBlockExtension } from './extensions/mermaid-block'
 import { ImagePaste } from './extensions/image-paste'
-import Image from '@tiptap/extension-image'
+import { LexxImage, convertLocalImagesInHTML } from './extensions/lexx-image'
 import { Markdown } from 'tiptap-markdown'
 import { createLowlight, common } from 'lowlight'
 import { DualModeExtension } from './extensions/dual-mode'
 import { FixContentParsing } from './extensions/fix-content-parsing'
+import { TrailingNode } from './extensions/trailing-node'
 
 const lowlight = createLowlight(common)
 
@@ -56,7 +57,7 @@ export function createEditor(element: HTMLElement, content: string = '', getFile
         defaultLanguage: 'plaintext',
       }),
       DualModeExtension,
-      Image.configure({
+      LexxImage.configure({
         inline: false,
         allowBase64: false,
       }),
@@ -71,44 +72,9 @@ export function createEditor(element: HTMLElement, content: string = '', getFile
         transformCopiedText: true,
       }),
       FixContentParsing,
+      TrailingNode,
     ],
-    content: content || `# Welcome to Lexx
-
-Start typing in **Markdown** and see it render instantly.
-
-- Press \`# \` at the start of a line for headings
-- Use \`**bold**\` and \`*italic*\` for inline formatting
-
-## Code Blocks
-
-\`\`\`javascript
-const hello = 'world'
-console.log(hello)
-\`\`\`
-
-> This is a blockquote. Cursor entering a block shows the Markdown source syntax.
-
-## Mermaid Diagrams
-
-\`\`\`mermaid
-graph TD
-    A[Start] --> B{Decision}
-    B -->|Yes| C[Action 1]
-    B -->|No| D[Action 2]
-    C --> E[End]
-    D --> E
-\`\`\`
-
-## Math Formulas
-
-\`\`\`math
-E = mc^2
-\`\`\`
-
-\`\`\`math
-\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
-\`\`\`
-`,
+    content: content || '',
     editorProps: {
       attributes: {
         class: 'ProseMirror',

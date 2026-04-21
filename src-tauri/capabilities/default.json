@@ -8,6 +8,8 @@
     "dialog:default",
     "core:window:default",
     "core:window:allow-close",
-    "core:window:allow-destroy"
+    "core:window:allow-destroy",
+    "core:event:default",
+    "core:webview:allow-create-webview-window"
   ]
 }

@@ -5,10 +5,10 @@
 :root {
   --bg: #ffffff;
   --bg-secondary: #f6f8fa;
-  --bg-code: #1e1e1e;
+  --bg-code: #f0f2f5;
   --text: #24292e;
   --text-secondary: #6a737d;
-  --text-code: #d4d4d4;
+  --text-code: #333;
   --border: #e1e4e8;
   --border-dark: #d1d5da;
   --accent: #0366d6;
@@ -429,6 +429,36 @@ html, body {
   height: auto;
 }
 
+/* Slightly tall diagrams: show in full */
+.rich-render-container.diagram-moderate svg {
+  max-height: 80vh;
+}
+
+/* Very tall diagrams: thumbnail + click to enlarge */
+.rich-render-container.diagram-tall {
+  cursor: zoom-in;
+  max-height: 40vh;
+  overflow: hidden;
+}
+
+.rich-render-container.diagram-tall svg {
+  max-height: none;
+}
+
+/* Expanded overlay */
+.rich-render-container.diagram-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  max-height: none;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 0;
+  border: none;
+  cursor: zoom-out;
+  padding: 40px;
+}
+
 /* KaTeX math rendering */
 .rich-render-container .katex-display {
   margin: 0;
@@ -486,9 +516,99 @@ html, body {
   font-size: 12px;
   color: var(--text-secondary);
   min-height: 28px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
 }
 
 .statusbar-left { display: flex; gap: 16px; }
-.statusbar-right { display: flex; gap: 16px; }
+.statusbar-right { display: flex; gap: 16px; align-items: center; }
 .statusbar .dirty { color: var(--hljs-type); font-weight: 600; }
 .statusbar .clean { color: var(--success-border); }
+
+.mode-toggle {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: background 0.15s, color 0.15s;
+}
+.mode-toggle:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+.mode-toggle.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ── Print ─────────────────────────────────────────────────── */
+
+@media print {
+  body {
+    background: #fff !important;
+    color: #24292e !important;
+  }
+  .editor-container {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  .ProseMirror {
+    max-width: 100%;
+  }
+  /* Force all blocks to render mode */
+  .block-edit-mode::before,
+  .block-edit-mode strong::before,
+  .block-edit-mode strong::after,
+  .block-edit-mode em::before,
+  .block-edit-mode em::after,
+  .block-edit-mode s::before,
+  .block-edit-mode s::after,
+  .block-edit-mode code::before,
+  .block-edit-mode code::after,
+  .block-edit-mode h1::before,
+  .block-edit-mode h2::before,
+  .block-edit-mode h3::before,
+  .block-edit-mode h4::before,
+  .block-edit-mode h5::before,
+  .block-edit-mode h6::before,
+  .block-edit-mode blockquote::before,
+  .block-edit-mode ul > li::before,
+  .block-edit-mode a::after {
+    content: '' !important;
+  }
+  .md-prefix { display: none !important; }
+  /* Hide editor chrome */
+  .source-exit-btn,
+  .statusbar,
+  .toast { display: none !important; }
+  pre, blockquote, .rich-render-container { page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+}
+
+.file-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.nav-btn {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 8px;
+  line-height: 1;
+  border-radius: 2px;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-btn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+

@@ -1,33 +1,39 @@
 <template>
   <div class="statusbar">
     <div class="statusbar-left">
-      <span>{{ filename }}</span>
       <span :class="dirty ? 'dirty' : 'clean'">
         {{ dirty ? 'Unsaved' : 'Saved' }}
       </span>
-      <span>{{ wordCount }} words</span>
+      <span v-if="wordCount > 0">{{ wordCount }} words</span>
+      <span v-if="charCount > 0">{{ charCount }} chars</span>
     </div>
     <div class="statusbar-right">
-      <span>{{ charCount }} chars</span>
-      <span>Markdown</span>
+      <button class="mode-toggle" :class="{ active: sourceMode }" @click="$emit('toggle-source')">
+        {{ sourceMode ? 'Markdown' : 'Source' }}
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Editor } from '@tiptap/core'
 
 const props = defineProps<{
-  editor: Editor | null
-  filename: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor: any
   dirty: boolean
+  sourceMode?: boolean
+}>()
+
+defineEmits<{
+  'toggle-source': []
 }>()
 
 const wordCount = computed(() => {
   if (!props.editor) return 0
   const text = props.editor.getText()
-  return text.trim() ? text.trim().split(/\s+/).length : 0
+  if (!text || !text.trim()) return 0
+  return text.trim().split(/\s+/).length
 })
 
 const charCount = computed(() => {

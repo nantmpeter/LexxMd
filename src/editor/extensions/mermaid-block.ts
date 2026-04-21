@@ -4,6 +4,27 @@ import type { NodeView as ProseMirrorNodeView } from '@tiptap/pm/view'
 import mermaid from 'mermaid'
 import katex from 'katex'
 
+function classifyDiagram(svg: SVGSVGElement, container: HTMLElement) {
+  const vb = svg.getAttribute('viewBox')
+  let ratio = 1
+  if (vb) {
+    const parts = vb.split(/[\s,]+/).map(Number)
+    const w = parts[2], h = parts[3]
+    if (w > 0) ratio = h / w
+  } else {
+    const bbox = svg.getBBox()
+    if (bbox.width > 0) ratio = bbox.height / bbox.width
+  }
+
+  container.classList.remove('diagram-tall', 'diagram-moderate', 'diagram-expanded')
+
+  if (ratio > 3) {
+    container.classList.add('diagram-tall')
+  } else if (ratio > 1.5) {
+    container.classList.add('diagram-moderate')
+  }
+}
+
 // ── Renderers ──────────────────────────────────────────────────
 
 // -- Mermaid --
@@ -97,6 +118,11 @@ function createRichCodeBlockNodeView(props: NodeViewRendererProps): ProseMirrorN
   const renderContainer = document.createElement('div')
   renderContainer.classList.add('rich-render-container')
   renderContainer.style.display = 'none'
+  renderContainer.addEventListener('click', () => {
+    if (renderContainer.classList.contains('diagram-tall')) {
+      renderContainer.classList.toggle('diagram-expanded')
+    }
+  })
   wrapper.appendChild(renderContainer)
 
   let lastRenderedSource = ''
@@ -130,6 +156,7 @@ function createRichCodeBlockNodeView(props: NodeViewRendererProps): ProseMirrorN
           if (svg) {
             svg.removeAttribute('width')
             svg.removeAttribute('style')
+            requestAnimationFrame(() => classifyDiagram(svg, renderContainer))
           }
         }
       })
@@ -229,6 +256,43 @@ function createDefaultCodeBlockNodeView(props: NodeViewRendererProps): ProseMirr
 
 export const MermaidBlockExtension = CodeBlockLowlight.extend({
   name: 'codeBlock',
+
+  addStorage() {
+    return {
+      markdown: {
+        parse: {
+          // ProseMirror's DOMParser loses indentation when reading content
+          // through a nested <code> element inside <pre>.
+          // Fix: flatten the structure — store language on <pre>, remove <code>,
+          // put text directly inside <pre>. This lets preserveWhitespace:'full'
+          // work correctly without code-mark interference.
+          updateDOM(element: HTMLElement) {
+            element.querySelectorAll('pre').forEach(pre => {
+              const code = pre.querySelector('code')
+              if (code) {
+                const lang = code.getAttribute('class') ?? ''
+                const text = code.textContent ?? ''
+                code.remove()
+                pre.textContent = text
+                if (lang) pre.setAttribute('data-language', lang)
+              }
+            })
+          },
+        },
+      },
+    }
+  },
+
+  // Override parseHTML to read language from data-language attr (set by updateDOM).
+  parseHTML() {
+    return [{
+      tag: 'pre',
+      preserveWhitespace: 'full',
+      getAttrs: (dom: HTMLElement) => ({
+        language: dom.getAttribute('data-language')?.replace('language-', '') || null,
+      }),
+    }]
+  },
 
   addNodeView() {
     return (props: NodeViewRendererProps) => {

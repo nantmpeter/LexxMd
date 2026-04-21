@@ -21,10 +21,11 @@ import { MermaidBlockExtension } from './extensions/mermaid-block'
 import { Markdown } from 'tiptap-markdown'
 import { createLowlight, common } from 'lowlight'
 import { DualModeExtension } from './extensions/dual-mode'
+import { FixContentParsing } from './extensions/fix-content-parsing'
 
 const lowlight = createLowlight(common)
 
-export function createEditor(element: HTMLElement) {
+export function createEditor(element: HTMLElement, content: string = '') {
   const editor = new Editor({
     element,
     extensions: [
@@ -57,9 +58,12 @@ export function createEditor(element: HTMLElement) {
         html: true,
         breaks: true,
         linkify: true,
+        transformPastedText: true,
+        transformCopiedText: true,
       }),
+      FixContentParsing,
     ],
-    content: `# Welcome to MDEditor
+    content: content || `# Welcome to Lexx
 
 Start typing in **Markdown** and see it render instantly.
 

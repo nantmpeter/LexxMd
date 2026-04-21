@@ -1,10 +1,10 @@
 [package]
-name = "mdeditor"
+name = "lexx"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "mdeditor_lib"
+name = "lexx_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -16,6 +16,8 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
+base64 = "0.22"
+urlencoding = "2.1"
 
 [profile.release]
 panic = "abort"

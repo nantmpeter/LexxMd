@@ -1,12 +1,5 @@
 /**
  * @file Frontend IPC wrapper for Tauri backend commands
- * @author Backend-Dev Agent (Python/Rust)
- * @created 2026-04-14
- *
- * IMPLEMENTATION SCOPE:
- * - Implemented: fileRead, fileWrite, openFileDialog, saveFileDialog wrappers
- * - Not implemented: file watcher, auto-save, recent files
- * - Pending: Integration with EditorStore for state sync
  */
 
 import { invoke } from '@tauri-apps/api/core'
@@ -24,12 +17,72 @@ export interface FileDialogResult {
   content: string
 }
 
-export async function openFileDialog(): Promise<FileDialogResult | null> {
-  return invoke<FileDialogResult | null>('file_open_dialog')
+export async function openFileDialog(): Promise<FileDialogResult[]> {
+  return invoke<FileDialogResult[]>('file_open_dialog')
 }
 
 export async function saveFileDialog(
   defaultName?: string
 ): Promise<string | null> {
   return invoke<string | null>('file_save_dialog', { defaultName })
+}
+
+export async function saveFileDialogWithFilter(
+  defaultName: string,
+  filters: Array<{ name: string; extensions: string[] }>
+): Promise<string | null> {
+  return invoke<string | null>('file_save_dialog', { defaultName, filters })
+}
+
+export async function fileWriteBinary(path: string, base64Content: string): Promise<void> {
+  return invoke<void>('file_write_binary', { path, content: base64Content })
+}
+
+// ── Auto-save / crash recovery ────────────────────────────
+
+export interface TempFile {
+  path: string
+  filename: string
+  modified: number
+}
+
+export async function tempSave(filename: string, content: string): Promise<string> {
+  return invoke<string>('temp_save', { filename, content })
+}
+
+export async function listTempFiles(): Promise<TempFile[]> {
+  return invoke<TempFile[]>('list_temp_files')
+}
+
+export async function deleteTempFile(path: string): Promise<void> {
+  return invoke<void>('delete_temp_file', { path })
+}
+
+export async function updateWindowTitle(title: string): Promise<void> {
+  return invoke<void>('update_window_title', { title })
+}
+
+// ── File explorer / sidebar ─────────────────────────────────
+
+export interface DirEntry {
+  name: string
+  path: string
+  is_dir: boolean
+  is_markdown: boolean
+}
+
+export async function directoryOpenDialog(): Promise<string | null> {
+  return invoke<string | null>('directory_open_dialog')
+}
+
+export async function listDirectory(dirPath: string): Promise<DirEntry[]> {
+  return invoke<DirEntry[]>('list_directory', { dirPath })
+}
+
+export async function openFolderInNewWindow(folderPath: string): Promise<void> {
+  return invoke<void>('open_folder_in_new_window', { folderPath })
+}
+
+export async function toggleFullscreen(): Promise<void> {
+  return invoke<void>('toggle_fullscreen')
 }

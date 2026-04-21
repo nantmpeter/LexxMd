@@ -1,12 +1,42 @@
 <template>
   <div class="app">
-    <main class="editor-container">
-      <div ref="editorEl" />
+    <MenuBar v-if="!isMac" @menu-event="onMenuBarEvent" />
+    <button
+      v-if="sourceMode"
+      class="source-exit-btn"
+      @click="toggleSourceMode"
+    >Exit Source Mode</button>
+    <main class="editor-container" ref="editorContainerEl">
+      <div
+        v-for="slot in openFiles"
+        :key="slot.id"
+        :ref="(el) => setSlotElement(slot.id, el as HTMLElement | null)"
+        v-show="slot.id === activeFileId && !sourceMode"
+        class="editor-pane"
+      />
+      <div
+        ref="sourceEditorEl"
+        v-show="sourceMode"
+        class="source-pane"
+      />
+      <OutlineView v-show="!sourceMode" :editor="activeEditor" :container="editorContainerEl" />
     </main>
+    <Sidebar
+      :mode="effectiveSidebarMode"
+      :open-files="openFiles"
+      :active-file-id="activeFileId"
+      :active-file-path="activeFile?.filePath ?? ''"
+      :root-path="workspaceRoot ?? ''"
+      @select-file="switchToFile"
+      @close-file="closeFile"
+      @open-file="openFileFromTree"
+      @open-folder="handleOpenFolder"
+    />
     <StatusBar
-      :editor="editor"
-      :filename="filename"
-      :dirty="dirty"
+      :editor="sourceMode ? null : activeEditor"
+      :dirty="activeDirty"
+      :source-mode="sourceMode"
+      @toggle-source="toggleSourceMode"
     />
     <Transition name="toast">
       <div v-if="toast" class="toast" :class="toast.type">{{ toast.message }}</div>
@@ -15,19 +45,65 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { createEditor } from './editor/index'
+import { createSourceEditor } from './editor/source-editor'
 import StatusBar from './ui/StatusBar.vue'
-import { fileWrite, saveFileDialog, fileRead, openFileDialog } from './tauri/commands'
+import OutlineView from './ui/OutlineView.vue'
+import Sidebar from './ui/Sidebar.vue'
+import MenuBar from './ui/MenuBar.vue'
+import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, tempSave, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, toggleFullscreen } from './tauri/commands'
+import { exportPDF, exportDOCX, exportJPEG } from './export'
+import { arrayBufferToBase64 } from './export/utils'
+import type { FileSlot } from './types'
 
-const editorEl = ref<HTMLElement | null>(null)
-const editor = ref<ReturnType<typeof createEditor> | null>(null)
-const filename = ref('Untitled.md')
-const filePath = ref<string | null>(null)
-const dirty = ref(false)
+const isMac = navigator.platform.toUpperCase().includes('MAC')
+
+const editorContainerEl = ref<HTMLElement | null>(null)
+const openFiles = ref<FileSlot[]>([])
+const activeFileId = ref('')
 const toast = ref<{ message: string; type: 'error' | 'success' } | null>(null)
+const sourceMode = ref(false)
+const sourceEditorEl = ref<HTMLElement | null>(null)
+let sourceEditor: ReturnType<typeof createSourceEditor> | null = null
+
+// ── Sidebar / workspace state ────────────────────────────────
+const workspaceRoot = ref<string | null>(null)
+
+const effectiveSidebarMode = computed(() => {
+  if (workspaceRoot.value) return 'tree'
+  if (openFiles.value.length > 1) return 'flat'
+  return 'hidden'
+})
 
 let toastTimeout: ReturnType<typeof setTimeout> | null = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let unlistenMenu: any = null
+let idCounter = 0
+const slotElements = new Map<string, HTMLElement>()
+const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const AUTO_SAVE_DELAY = 3000
+
+// ── Computed accessors ─────────────────────────────────────
+
+const activeIndex = computed(() =>
+  openFiles.value.findIndex(f => f.id === activeFileId.value)
+)
+
+const activeFile = computed(() =>
+  openFiles.value.find(f => f.id === activeFileId.value) ?? null
+)
+
+const activeEditor = computed(() => activeFile.value?.editor ?? null)
+const activeFilename = computed(() => activeFile.value?.filename ?? 'Untitled.md')
+const activeDirty = computed(() => activeFile.value?.dirty ?? false)
+
+// Sync filename to native window title
+watch(activeFilename, (fn) => {
+  updateWindowTitle(fn).catch(() => { /* not in Tauri */ })
+}, { immediate: true })
+
+// ── Toast ──────────────────────────────────────────────────
 
 function showToast(message: string, type: 'error' | 'success' = 'error') {
   if (toastTimeout) clearTimeout(toastTimeout)
@@ -35,31 +111,178 @@ function showToast(message: string, type: 'error' | 'success' = 'error') {
   toastTimeout = setTimeout(() => { toast.value = null }, 4000)
 }
 
-function getMarkdownContent(): string | null {
-  if (!editor.value) return null
-  const md = editor.value.storage.markdown?.getMarkdown?.()
+// ── Markdown content ───────────────────────────────────────
+
+function getMarkdownContent(slot: FileSlot): string | null {
+  if (!slot.editor) return null
+  const md = slot.editor.storage.markdown?.getMarkdown?.()
   if (typeof md === 'string') return md
   showToast('Failed to serialize document as Markdown')
   return null
 }
 
-async function handleSave() {
-  const content = getMarkdownContent()
+// ── Auto-save ──────────────────────────────────────────────
+
+function clearAutoSaveTimer(slot: FileSlot) {
+  const timer = autoSaveTimers.get(slot.id)
+  if (timer) {
+    clearTimeout(timer)
+    autoSaveTimers.delete(slot.id)
+  }
+}
+
+function clearAllAutoSaveTimers() {
+  for (const timer of autoSaveTimers.values()) clearTimeout(timer)
+  autoSaveTimers.clear()
+}
+
+async function performAutoSave(slot: FileSlot) {
+  if (!slot.dirty || !slot.editor) return
+
+  // If in source mode, sync CM → PM
+  if (sourceMode.value && sourceEditor && activeFile.value?.id === slot.id) {
+    const md = sourceEditor.getContent()
+    slot.editor.commands.setContent(md)
+  }
+
+  const content = getMarkdownContent(slot)
   if (content === null) return
 
   try {
-    if (filePath.value) {
-      await fileWrite(filePath.value, content)
-      dirty.value = false
+    if (slot.filePath) {
+      await fileWrite(slot.filePath, content)
+      slot.dirty = false
+      slot.lastSavedContent = content
+    } else {
+      await tempSave(slot.filename, content)
+      slot.lastSavedContent = content
+    }
+  } catch {
+    // Silent
+  }
+}
+
+function scheduleAutoSave(slot: FileSlot) {
+  clearAutoSaveTimer(slot)
+  const timer = setTimeout(() => performAutoSave(slot), AUTO_SAVE_DELAY)
+  autoSaveTimers.set(slot.id, timer)
+}
+
+// ── Slot management ────────────────────────────────────────
+
+function createFileSlot(content: string = '', fn: string = 'Untitled.md', fp: string | null = null): FileSlot {
+  const id = `file-${++idCounter}`
+  const slot: FileSlot = {
+    id,
+    filePath: fp,
+    filename: fn,
+    dirty: false,
+    editor: null,
+    element: null,
+    lastSavedContent: content,
+  }
+  openFiles.value.push(slot)
+  return slot
+}
+
+function setSlotElement(id: string, el: HTMLElement | null) {
+  if (!el) return
+  const existing = slotElements.get(id)
+  if (existing === el) return
+  slotElements.set(id, el)
+
+  const slot = openFiles.value.find(f => f.id === id)
+  if (slot && !slot.element) {
+    slot.element = el
+    slot.editor = createEditor(el, slot.lastSavedContent)
+    slot.editor.on('update', () => {
+      slot.dirty = true
+      scheduleAutoSave(slot)
+    })
+  }
+}
+
+function switchToFile(id: string) {
+  // If in source mode, save CM content to outgoing slot
+  if (sourceMode.value && sourceEditor && activeFile.value?.editor) {
+    const md = sourceEditor.getContent()
+    activeFile.value.editor.commands.setContent(md)
+  }
+
+  activeFileId.value = id
+
+  // Load new file's markdown into CM if in source mode
+  if (sourceMode.value && sourceEditor) {
+    const slot = openFiles.value.find(f => f.id === id)
+    if (slot?.editor) {
+      const md = getMarkdownContent(slot)
+      if (md !== null) sourceEditor.setContent(md)
+    }
+  }
+
+  nextTick(() => {
+    if (!sourceMode.value) {
+      const slot = openFiles.value.find(f => f.id === id)
+      slot?.editor?.commands.focus()
+    }
+  })
+}
+
+async function closeFile(slot: FileSlot): Promise<boolean> {
+  if (slot.dirty) {
+    const confirmed = await confirmUnsaved(slot.filename)
+    if (!confirmed) return false
+  }
+
+  clearAutoSaveTimer(slot)
+  slot.editor?.destroy()
+
+  const idx = openFiles.value.findIndex(f => f.id === slot.id)
+  openFiles.value = openFiles.value.filter(f => f.id !== slot.id)
+  slotElements.delete(slot.id)
+
+  if (openFiles.value.length === 0) {
+    const newSlot = createFileSlot()
+    switchToFile(newSlot.id)
+  } else {
+    const newIdx = Math.min(idx, openFiles.value.length - 1)
+    switchToFile(openFiles.value[newIdx].id)
+  }
+
+  return true
+}
+
+// ── File operations ────────────────────────────────────────
+
+async function handleSave() {
+  const slot = activeFile.value
+  if (!slot?.editor) return
+
+  // If in source mode, sync CM → PM before saving
+  if (sourceMode.value && sourceEditor) {
+    const md = sourceEditor.getContent()
+    slot.editor.commands.setContent(md)
+  }
+
+  clearAutoSaveTimer(slot)
+  const content = getMarkdownContent(slot)
+  if (content === null) return
+
+  try {
+    if (slot.filePath) {
+      await fileWrite(slot.filePath, content)
+      slot.dirty = false
+      slot.lastSavedContent = content
       showToast('Saved', 'success')
     } else {
-      const chosenPath = await saveFileDialog(filename.value)
+      const chosenPath = await saveFileDialog(slot.filename)
       if (chosenPath) {
         await fileWrite(chosenPath, content)
-        filePath.value = chosenPath
-        const parts = chosenPath.split('/')
-        filename.value = parts[parts.length - 1] || 'Untitled.md'
-        dirty.value = false
+        slot.filePath = chosenPath
+        const parts = chosenPath.split(/[/\\]/)
+        slot.filename = parts[parts.length - 1] || 'Untitled.md'
+        slot.dirty = false
+        slot.lastSavedContent = content
         showToast('Saved', 'success')
       }
     }
@@ -69,16 +292,22 @@ async function handleSave() {
 }
 
 async function handleOpen() {
-  if (!editor.value) return
-
   try {
-    const result = await openFileDialog()
-    if (result) {
-      editor.value.commands.setContent(result.content)
-      filePath.value = result.path
-      const parts = result.path.split('/')
-      filename.value = parts[parts.length - 1] || 'Untitled.md'
-      dirty.value = false
+    const results = await openFileDialog()
+    if (results.length === 0) return
+
+    for (const result of results) {
+      // Check if already open
+      const existing = openFiles.value.find(f => f.filePath === result.path)
+      if (existing) {
+        switchToFile(existing.id)
+        continue
+      }
+
+      const parts = result.path.split(/[/\\]/)
+      const fn = parts[parts.length - 1] || 'Untitled.md'
+      const slot = createFileSlot(result.content, fn, result.path)
+      switchToFile(slot.id)
     }
   } catch (e) {
     showToast(`Open failed: ${e instanceof Error ? e.message : String(e)}`)
@@ -86,77 +315,343 @@ async function handleOpen() {
 }
 
 function handleNew() {
-  if (!editor.value) return
-  editor.value.commands.setContent('')
-  filePath.value = null
-  filename.value = 'Untitled.md'
-  dirty.value = false
+  const slot = createFileSlot()
+  switchToFile(slot.id)
 }
 
-function onKeyDown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-    e.preventDefault()
-    handleSave()
-  }
-  if ((e.metaKey || e.ctrlKey) && e.key === 'o') {
-    e.preventDefault()
-    handleOpen()
-  }
-  if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
-    e.preventDefault()
-    handleNew()
+async function handleClose() {
+  const slot = activeFile.value
+  if (!slot) return
+  await closeFile(slot)
+}
+
+function toggleSourceMode() {
+  if (sourceMode.value) {
+    // Exit source mode: push CM content back to ProseMirror
+    sourceEditor?.view.dom.blur()
+    const slot = activeFile.value
+    const md = sourceEditor?.getContent() ?? null
+    sourceMode.value = false
+    if (slot?.editor) {
+      nextTick(() => {
+        if (md) {
+          try {
+            slot.editor.commands.setContent(md, false)
+          } catch (e) {
+            console.warn('setContent failed', e)
+          }
+        }
+        slot.editor.commands.focus()
+      })
+    }
+  } else {
+    // Enter source mode: get markdown from ProseMirror
+    const slot = activeFile.value
+    if (!slot?.editor) return
+
+    const md = getMarkdownContent(slot)
+    if (md === null) return
+
+    sourceMode.value = true
+
+    // Lazy-create CodeMirror on first toggle
+    if (!sourceEditor && sourceEditorEl.value) {
+      sourceEditor = createSourceEditor(sourceEditorEl.value, () => {
+        const s = activeFile.value
+        if (s) {
+          s.dirty = true
+          scheduleAutoSave(s)
+        }
+      })
+    }
+
+    if (sourceEditor) {
+      sourceEditor.setContent(md)
+      const { from } = slot.editor.state.selection
+      const text = slot.editor.state.doc.textBetween(0, from, '\n')
+      const line = text.split('\n').length
+      sourceEditor.setCursorLine(line)
+    }
   }
 }
 
-async function confirmUnsaved(): Promise<boolean> {
+// ── Export ────────────────────────────────────────────────────
+
+async function handleExportPDF() {
+  const slot = activeFile.value
+  if (!slot?.element) return
+  try {
+    const blob = await exportPDF(slot.element, activeFilename.value)
+    const baseName = activeFilename.value.replace(/\.[^.]+$/, '')
+    const chosenPath = await saveFileDialogWithFilter(
+      `${baseName}.pdf`,
+      [{ name: 'PDF Document', extensions: ['pdf'] }]
+    )
+    if (chosenPath) {
+      const buffer = await blob.arrayBuffer()
+      const base64 = arrayBufferToBase64(buffer)
+      await fileWriteBinary(chosenPath, base64)
+      showToast('Exported as PDF', 'success')
+    }
+  } catch (e) {
+    showToast(`PDF export failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+async function handleExportDOCX() {
+  const slot = activeFile.value
+  if (!slot?.element) return
+  try {
+    const blob = await exportDOCX(slot.element)
+    const baseName = activeFilename.value.replace(/\.[^.]+$/, '')
+    const chosenPath = await saveFileDialogWithFilter(
+      `${baseName}.docx`,
+      [{ name: 'Word Document', extensions: ['docx'] }]
+    )
+    if (chosenPath) {
+      const buffer = await blob.arrayBuffer()
+      const base64 = arrayBufferToBase64(buffer)
+      await fileWriteBinary(chosenPath, base64)
+      showToast('Exported as DOCX', 'success')
+    }
+  } catch (e) {
+    showToast(`DOCX export failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+async function handleExportJPEG() {
+  const slot = activeFile.value
+  if (!slot?.element) return
+  try {
+    const blob = await exportJPEG(slot.element)
+    const baseName = activeFilename.value.replace(/\.[^.]+$/, '')
+    const chosenPath = await saveFileDialogWithFilter(
+      `${baseName}.jpg`,
+      [{ name: 'JPEG Image', extensions: ['jpg', 'jpeg'] }]
+    )
+    if (chosenPath) {
+      const buffer = await blob.arrayBuffer()
+      const base64 = arrayBufferToBase64(buffer)
+      await fileWriteBinary(chosenPath, base64)
+      showToast('Exported as JPEG', 'success')
+    }
+  } catch (e) {
+    showToast(`JPEG export failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+function handleCycleNext() {
+  if (openFiles.value.length <= 1) return
+  const nextIdx = (activeIndex.value + 1) % openFiles.value.length
+  switchToFile(openFiles.value[nextIdx].id)
+}
+
+function handleCyclePrev() {
+  if (openFiles.value.length <= 1) return
+  const prevIdx = (activeIndex.value - 1 + openFiles.value.length) % openFiles.value.length
+  switchToFile(openFiles.value[prevIdx].id)
+}
+
+// ── Folder / tree ──────────────────────────────────────────
+
+async function handleOpenFolder() {
+  try {
+    // If in flat mode (multiple files), open folder in a new window
+    if (effectiveSidebarMode.value === 'flat') {
+      const dirPath = await directoryOpenDialog()
+      if (dirPath) {
+        await openFolderInNewWindow(dirPath)
+      }
+      return
+    }
+
+    const dirPath = await directoryOpenDialog()
+    if (dirPath) {
+      workspaceRoot.value = dirPath
+      const parts = dirPath.split(/[/\\]/)
+      const folderName = parts[parts.length - 1] || 'Lexx'
+      updateWindowTitle(folderName).catch(() => {})
+    }
+  } catch (e) {
+    showToast(`Open folder failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+async function openFileFromTree(path: string) {
+  // Check if already open
+  const existing = openFiles.value.find(f => f.filePath === path)
+  if (existing) {
+    switchToFile(existing.id)
+    return
+  }
+
+  try {
+    const content = await fileRead(path)
+    const parts = path.split(/[/\\]/)
+    const fn = parts[parts.length - 1] || 'Untitled.md'
+    const slot = createFileSlot(content, fn, path)
+    switchToFile(slot.id)
+  } catch (e) {
+    showToast(`Failed to open: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+async function confirmUnsaved(fn: string): Promise<boolean> {
   try {
     const { ask } = await import('@tauri-apps/plugin-dialog')
-    return await ask('You have unsaved changes. Close anyway?', {
+    return await ask(`"${fn}" has unsaved changes. Close anyway?`, {
       title: 'Unsaved Changes',
       kind: 'warning',
       okLabel: 'Discard',
       cancelLabel: 'Cancel',
     })
   } catch {
-    // Fallback for non-Tauri environment
-    return window.confirm('You have unsaved changes. Close anyway?')
+    return window.confirm(`"${fn}" has unsaved changes. Close anyway?`)
   }
 }
 
-onMounted(async () => {
-  if (editorEl.value) {
-    editor.value = createEditor(editorEl.value)
+// ── Crash recovery ─────────────────────────────────────────
 
-    editor.value.on('update', () => {
-      dirty.value = true
-    })
+async function checkCrashRecovery() {
+  try {
+    const tempFiles = await listTempFiles()
+    if (tempFiles.length === 0) return
+
+    const { ask } = await import('@tauri-apps/plugin-dialog')
+    for (const tf of tempFiles) {
+      const recover = await ask(
+        `Found unsaved file "${tf.filename}" from a previous session. Recover it?`,
+        { title: 'Crash Recovery', kind: 'warning', okLabel: 'Recover', cancelLabel: 'Discard' }
+      )
+      if (recover) {
+        const content = await fileRead(tf.path)
+        const slot = createFileSlot(content, tf.filename)
+        slot.dirty = true
+        switchToFile(slot.id)
+      }
+      await deleteTempFile(tf.path)
+    }
+  } catch {
+    // Silent
+  }
+}
+
+// ── Lifecycle ──────────────────────────────────────────────
+
+onMounted(async () => {
+  // Create initial empty file
+  const initialSlot = createFileSlot()
+  switchToFile(initialSlot.id)
+
+  // Check for workspace query param (new window from folder open)
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const ws = params.get('workspace')
+    if (ws) {
+      workspaceRoot.value = ws
+      const parts = ws.split(/[/\\]/)
+      const folderName = parts[parts.length - 1] || 'Lexx'
+      updateWindowTitle(folderName).catch(() => {})
+    }
+  } catch {
+    // not in browser context
   }
 
-  window.addEventListener('keydown', onKeyDown)
+  // ── Frontend menu bar (Windows) ────────────────────────────
 
-  // Prevent closing with unsaved changes
+  function onMenuBarEvent(id: string) {
+    if (id === 'vf') {
+      toggleFullscreen().catch(() => {})
+      return
+    }
+    switch (id) {
+      case 'fn': handleNew(); break
+      case 'fo': handleOpen(); break
+      case 'ff': handleOpenFolder(); break
+      case 'fs': handleSave(); break
+      case 'fc': handleClose(); break
+      case 'vs': toggleSourceMode(); break
+      case 'ep': handleExportPDF(); break
+      case 'ed': handleExportDOCX(); break
+      case 'ej': handleExportJPEG(); break
+    }
+  }
+
+  // Menu events + keyboard shortcuts
+  try {
+    const { listen } = await import('@tauri-apps/api/event')
+    unlistenMenu = await listen<string>('menu-event', (event) => {
+      switch (event.payload) {
+        case 'fn': handleNew(); break
+        case 'fo': handleOpen(); break
+        case 'ff': handleOpenFolder(); break
+        case 'fs': handleSave(); break
+        case 'fc': handleClose(); break
+        case 'vs': toggleSourceMode(); break
+        case 'ep': handleExportPDF(); break
+        case 'ed': handleExportDOCX(); break
+        case 'ej': handleExportJPEG(); break
+      }
+    })
+  } catch {
+    // Not running in Tauri
+  }
+  // Always register keyboard shortcuts (menu accelerators may not forward to frontend on all platforms)
+  window.addEventListener('keydown', onAcceleratorKey)
+  window.addEventListener('keydown', onCycleKey)
+
+  // Window close
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     const appWindow = getCurrentWindow()
     appWindow.onCloseRequested(async (event) => {
-      if (dirty.value) {
+      const dirtySlots = openFiles.value.filter(f => f.dirty)
+      if (dirtySlots.length > 0) {
         event.preventDefault()
-        const confirmed = await confirmUnsaved()
-        if (confirmed) {
-          await appWindow.destroy()
+        clearAllAutoSaveTimers()
+        for (const slot of dirtySlots) {
+          await performAutoSave(slot)
         }
+        await appWindow.destroy()
       }
     })
   } catch {
-    // Not running in Tauri, ignore
+    // Not running in Tauri
   }
+
+  // Crash recovery
+  await checkCrashRecovery()
 })
 
+function onAcceleratorKey(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 's') { e.preventDefault(); handleSave() }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'o') { e.preventDefault(); handleOpen() }
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); handleOpenFolder() }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') { e.preventDefault(); handleNew() }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') { e.preventDefault(); handleClose() }
+  if (e.key === 'Escape' && sourceMode.value) { e.preventDefault(); toggleSourceMode() }
+}
+
+function onCycleKey(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ']') {
+    e.preventDefault()
+    handleCycleNext()
+  }
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '[') {
+    e.preventDefault()
+    handleCyclePrev()
+  }
+}
+
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeyDown)
+  clearAllAutoSaveTimers()
+  if (unlistenMenu) unlistenMenu()
+  if (sourceEditor) sourceEditor.destroy()
+  window.removeEventListener('keydown', onAcceleratorKey)
+  window.removeEventListener('keydown', onCycleKey)
   if (toastTimeout) clearTimeout(toastTimeout)
-  if (editor.value) {
-    editor.value.destroy()
+  for (const slot of openFiles.value) {
+    slot.editor?.destroy()
   }
 })
 </script>
@@ -171,6 +666,40 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   padding: 40px max(40px, calc((100% - 800px) / 2));
+}
+.editor-pane {
+  min-height: 100%;
+}
+.source-pane {
+  min-height: 100%;
+  position: relative;
+}
+.source-pane :deep(.cm-editor) {
+  height: auto;
+  font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 14px;
+}
+.source-pane :deep(.cm-editor .cm-scroller) {
+  font-family: inherit;
+  overflow: auto;
+}
+
+.source-exit-btn {
+  position: fixed;
+  top: 60px;
+  right: 16px;
+  z-index: 9999;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+.source-exit-btn:hover {
+  background: var(--bg-secondary);
 }
 
 /* ── Toast Notification ─────────────────────────────────── */

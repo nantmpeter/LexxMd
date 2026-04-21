@@ -17,6 +17,7 @@ pub fn run() {
             commands::directory_open_dialog,
             commands::list_directory,
             commands::open_folder_in_new_window,
+            commands::open_file_in_new_window,
             commands::temp_save,
             commands::list_temp_files,
             commands::delete_temp_file,
@@ -93,6 +94,19 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            match event {
+                tauri::RunEvent::Opened { urls } => {
+                    for url in urls {
+                        if let Ok(path) = url.to_file_path() {
+                            let path_str = path.to_string_lossy().to_string();
+                            let _ = app.emit("file-open", &path_str);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        })
 }

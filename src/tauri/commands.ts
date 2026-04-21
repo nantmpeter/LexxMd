@@ -83,6 +83,10 @@ export async function openFolderInNewWindow(folderPath: string): Promise<void> {
   return invoke<void>('open_folder_in_new_window', { folderPath })
 }
 
+export async function openFileInNewWindow(filePath: string): Promise<void> {
+  return invoke<void>('open_file_in_new_window', { filePath })
+}
+
 export async function toggleFullscreen(): Promise<void> {
   return invoke<void>('toggle_fullscreen')
 }

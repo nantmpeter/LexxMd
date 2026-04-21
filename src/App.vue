@@ -52,7 +52,7 @@ import StatusBar from './ui/StatusBar.vue'
 import OutlineView from './ui/OutlineView.vue'
 import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
-import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, tempSave, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, toggleFullscreen } from './tauri/commands'
+import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, tempSave, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, toggleFullscreen } from './tauri/commands'
 import { exportPDF, exportDOCX, exportJPEG } from './export'
 import { arrayBufferToBase64 } from './export/utils'
 import type { FileSlot } from './types'
@@ -553,6 +553,24 @@ onMounted(async () => {
       const folderName = parts[parts.length - 1] || 'Lexx'
       updateWindowTitle(folderName).catch(() => {})
     }
+    // Check for file query param (new window from file open)
+    const fp = params.get('file')
+    if (fp) {
+      try {
+        const content = await fileRead(fp)
+        const parts = fp.split(/[/\\]/)
+        const fn = parts[parts.length - 1] || 'Untitled.md'
+        // Replace the initial empty slot with the real file
+        openFiles.value[0].filePath = fp
+        openFiles.value[0].filename = fn
+        openFiles.value[0].lastSavedContent = content
+        if (openFiles.value[0].editor) {
+          openFiles.value[0].editor.commands.setContent(content)
+        }
+      } catch {
+        // file read failed, keep empty slot
+      }
+    }
   } catch {
     // not in browser context
   }
@@ -591,6 +609,18 @@ onMounted(async () => {
         case 'ep': handleExportPDF(); break
         case 'ed': handleExportDOCX(); break
         case 'ej': handleExportJPEG(); break
+      }
+    })
+
+    // File-open events from OS (double-click .md file, drag to dock, etc.)
+    await listen<string>('file-open', (event) => {
+      const path = event.payload
+      if (workspaceRoot.value) {
+        // Folder mode → open file in a new window
+        openFileInNewWindow(path).catch(() => {})
+      } else {
+        // No workspace → open in current window
+        openFileFromTree(path)
       }
     })
   } catch {

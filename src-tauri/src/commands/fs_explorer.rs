@@ -102,3 +102,39 @@ pub async fn open_folder_in_new_window(
 
     Ok(())
 }
+
+/// Open a file in a new application window (used when workspace is open).
+#[tauri::command]
+pub async fn open_file_in_new_window(
+    app: tauri::AppHandle,
+    file_path: String,
+) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    let label = format!(
+        "file-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let encoded = urlencoding::encode(&file_path);
+    let url = format!("index.html?file={}", encoded);
+
+    // Extract filename for the window title
+    let filename = PathBuf::from(&file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Untitled")
+        .to_string();
+
+    WebviewWindowBuilder::new(&app, label, WebviewUrl::App(url.into()))
+        .title(&filename)
+        .inner_size(1200.0, 800.0)
+        .min_inner_size(800.0, 600.0)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}

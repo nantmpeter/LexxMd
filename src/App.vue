@@ -194,7 +194,7 @@ function setSlotElement(id: string, el: HTMLElement | null) {
   const slot = openFiles.value.find(f => f.id === id)
   if (slot && !slot.element) {
     slot.element = el
-    slot.editor = createEditor(el, slot.lastSavedContent)
+    slot.editor = createEditor(el, slot.lastSavedContent, () => slot.filePath)
     slot.editor.on('update', () => {
       slot.dirty = true
       scheduleAutoSave(slot)

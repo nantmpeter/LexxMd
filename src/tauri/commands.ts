@@ -38,6 +38,10 @@ export async function fileWriteBinary(path: string, base64Content: string): Prom
   return invoke<void>('file_write_binary', { path, content: base64Content })
 }
 
+export async function getAppDataDir(): Promise<string> {
+  return invoke<string>('get_app_data_dir')
+}
+
 // ── Auto-save / crash recovery ────────────────────────────
 
 export interface TempFile {

@@ -52,6 +52,9 @@ pub fn file_write_binary(path: String, content: String) -> Result<(), String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&content)
         .map_err(|e| format!("Base64 decode error: {e}"))?;
+    if let Some(parent) = PathBuf::from(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     fs::write(&path, &bytes).map_err(|e| e.to_string())
 }
 

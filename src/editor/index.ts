@@ -18,6 +18,8 @@ import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
 import { MermaidBlockExtension } from './extensions/mermaid-block'
+import { ImagePaste } from './extensions/image-paste'
+import Image from '@tiptap/extension-image'
 import { Markdown } from 'tiptap-markdown'
 import { createLowlight, common } from 'lowlight'
 import { DualModeExtension } from './extensions/dual-mode'
@@ -25,7 +27,7 @@ import { FixContentParsing } from './extensions/fix-content-parsing'
 
 const lowlight = createLowlight(common)
 
-export function createEditor(element: HTMLElement, content: string = '') {
+export function createEditor(element: HTMLElement, content: string = '', getFilePath: () => string | null = () => null) {
   const editor = new Editor({
     element,
     extensions: [
@@ -54,6 +56,13 @@ export function createEditor(element: HTMLElement, content: string = '') {
         defaultLanguage: 'plaintext',
       }),
       DualModeExtension,
+      Image.configure({
+        inline: false,
+        allowBase64: false,
+      }),
+      ImagePaste.configure({
+        getFilePath,
+      }),
       Markdown.configure({
         html: true,
         breaks: true,

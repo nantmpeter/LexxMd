@@ -539,9 +539,8 @@ async function checkCrashRecovery() {
 // ── Lifecycle ──────────────────────────────────────────────
 
 onMounted(async () => {
-  // Create initial empty file
-  const initialSlot = createFileSlot()
-  switchToFile(initialSlot.id)
+  // Track whether any file was opened from startup params
+  let openedFile = false
 
   // Check for workspace query param (new window from folder open)
   try {
@@ -556,19 +555,15 @@ onMounted(async () => {
     // Check for file query param (new window from file open)
     const fp = params.get('file')
     if (fp) {
+      openedFile = true
       try {
         const content = await fileRead(fp)
         const parts = fp.split(/[/\\]/)
         const fn = parts[parts.length - 1] || 'Untitled.md'
-        // Replace the initial empty slot with the real file
-        openFiles.value[0].filePath = fp
-        openFiles.value[0].filename = fn
-        openFiles.value[0].lastSavedContent = content
-        if (openFiles.value[0].editor) {
-          openFiles.value[0].editor.commands.setContent(content)
-        }
+        const initialSlot = createFileSlot(content, fn, fp)
+        switchToFile(initialSlot.id)
       } catch {
-        // file read failed, keep empty slot
+        // file read failed
       }
     }
   } catch {
@@ -579,6 +574,7 @@ onMounted(async () => {
   try {
     const pending = await drainPendingFiles()
     for (const path of pending) {
+      openedFile = true
       if (workspaceRoot.value) {
         openFileInNewWindow(path).catch(() => {})
       } else {
@@ -587,6 +583,12 @@ onMounted(async () => {
     }
   } catch {
     // not in Tauri
+  }
+
+  // Only create an empty Untitled.md if nothing else was opened
+  if (!openedFile && openFiles.value.length === 0) {
+    const initialSlot = createFileSlot()
+    switchToFile(initialSlot.id)
   }
 
   // ── Frontend menu bar (Windows) ────────────────────────────

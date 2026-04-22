@@ -284,7 +284,42 @@ html, body {
 }
 .ProseMirror ul[data-type="taskList"] li > label {
   flex-shrink: 0;
-  margin-top: 0.25em;
+  margin-top: 0.35em;
+  cursor: pointer;
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  margin: 0;
+}
+.ProseMirror ul[data-type="taskList"] li > label span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1.5px solid var(--border);
+  background: var(--bg);
+  transition: all 0.15s ease;
+}
+.ProseMirror ul[data-type="taskList"] li > label input:checked + span {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ProseMirror ul[data-type="taskList"] li > label input:checked + span::after {
+  content: '';
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid white;
+  border-bottom: 2px solid white;
+  transform: rotate(-45deg) translateY(-0.5px);
 }
 .ProseMirror ul[data-type="taskList"] li > div { flex: 1; }
 

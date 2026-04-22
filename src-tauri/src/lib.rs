@@ -7,6 +7,7 @@ use tauri::{Emitter, Manager};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(commands::PendingFiles(std::sync::Mutex::new(Vec::new())))
         .invoke_handler(tauri::generate_handler![
             commands::file_read,
             commands::file_write,
@@ -23,6 +24,7 @@ pub fn run() {
             commands::delete_temp_file,
             commands::update_window_title,
             commands::toggle_fullscreen,
+            commands::drain_pending_files,
         ])
         .setup(|app| {
             // Native menu bar — macOS only.
@@ -103,6 +105,13 @@ pub fn run() {
                     for url in urls {
                         if let Ok(path) = url.to_file_path() {
                             let path_str = path.to_string_lossy().to_string();
+                            // Buffer for frontend to pick up on mount
+                            if let Some(pending) = app.try_state::<commands::PendingFiles>() {
+                                if let Ok(mut buf) = pending.0.lock() {
+                                    buf.push(path_str.clone());
+                                }
+                            }
+                            // Also emit for when frontend is already listening
                             let _ = app.emit("file-open", &path_str);
                         }
                     }

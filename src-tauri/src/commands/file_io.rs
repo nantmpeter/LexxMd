@@ -1,8 +1,23 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
+
+/// State type for buffering file paths opened during startup.
+pub struct PendingFiles(pub Mutex<Vec<String>>);
+
+/// Return (and clear) file paths that were opened before the frontend was ready.
+#[tauri::command]
+pub fn drain_pending_files(app: tauri::AppHandle) -> Vec<String> {
+    if let Some(pending) = app.try_state::<PendingFiles>() {
+        if let Ok(mut buf) = pending.0.lock() {
+            return std::mem::take(&mut *buf);
+        }
+    }
+    Vec::new()
+}
 use thiserror::Error;
 
 #[derive(Error, Debug)]

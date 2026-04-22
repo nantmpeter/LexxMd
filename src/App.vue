@@ -52,7 +52,7 @@ import StatusBar from './ui/StatusBar.vue'
 import OutlineView from './ui/OutlineView.vue'
 import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
-import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, tempSave, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, toggleFullscreen } from './tauri/commands'
+import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, tempSave, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, toggleFullscreen, drainPendingFiles } from './tauri/commands'
 import { exportPDF, exportDOCX, exportJPEG } from './export'
 import { arrayBufferToBase64 } from './export/utils'
 import type { FileSlot } from './types'
@@ -573,6 +573,20 @@ onMounted(async () => {
     }
   } catch {
     // not in browser context
+  }
+
+  // Check for files opened during app startup (before frontend was ready)
+  try {
+    const pending = await drainPendingFiles()
+    for (const path of pending) {
+      if (workspaceRoot.value) {
+        openFileInNewWindow(path).catch(() => {})
+      } else {
+        openFileFromTree(path)
+      }
+    }
+  } catch {
+    // not in Tauri
   }
 
   // ── Frontend menu bar (Windows) ────────────────────────────

@@ -94,3 +94,7 @@ export async function openFileInNewWindow(filePath: string): Promise<void> {
 export async function toggleFullscreen(): Promise<void> {
   return invoke<void>('toggle_fullscreen')
 }
+
+export async function drainPendingFiles(): Promise<string[]> {
+  return invoke<string[]>('drain_pending_files')
+}

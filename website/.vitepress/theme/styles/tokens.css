@@ -1,0 +1,58 @@
+/* ── Design Tokens ──────────────────────────────────────────── */
+/* Matches the Lexx editor's GitHub-inspired clean aesthetic */
+
+:root {
+  /* Colors — Light (default) */
+  --lexx-bg-primary: #ffffff;
+  --lexx-bg-secondary: #f6f8fa;
+  --lexx-bg-tertiary: #f0f2f5;
+  --lexx-text-primary: #24292e;
+  --lexx-text-secondary: #6a737d;
+  --lexx-text-tertiary: #999;
+  --lexx-border: #e1e4e8;
+  --lexx-border-hover: #d1d5da;
+  --lexx-accent: #0366d6;
+  --lexx-accent-light: rgba(3, 102, 214, 0.08);
+  --lexx-accent-secondary: #0550ae;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
+  --space-7: 64px;
+  --space-8: 96px;
+  --space-9: 128px;
+
+  /* Typography */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+  --text-4xl: 2.5rem;
+  --text-5xl: 3.5rem;
+  --text-hero: clamp(2.5rem, 6vw, 4.5rem);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 8px 30px rgba(0, 0, 0, 0.08);
+
+  /* Transitions */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+}

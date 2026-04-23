@@ -3,7 +3,8 @@
  * Shows on text selection with formatting buttons.
  */
 import { Extension } from '@tiptap/core'
-import { BubbleMenuPlugin, BubbleMenuPluginProps } from '@tiptap/extension-bubble-menu'
+import { BubbleMenuPlugin } from '@tiptap/extension-bubble-menu'
+import { PluginKey } from '@tiptap/pm/state'
 
 function renderToolbar(): HTMLElement {
   const el = document.createElement('div')
@@ -199,6 +200,7 @@ export const BubbleToolbar = Extension.create({
       BubbleMenuPlugin({
         editor,
         element,
+        pluginKey: new PluginKey('bubbleToolbar'),
         shouldShow: ({ state }) => {
           const { from, to, empty } = state.selection
           if (empty) return false
@@ -208,7 +210,6 @@ export const BubbleToolbar = Extension.create({
         tippyOptions: {
           maxWidth: 'none',
           placement: 'bottom',
-          flip: true,
           getReferenceClientRect: () => {
             const { head } = editor.state.selection
             const coords = editor.view.coordsAtPos(head)
@@ -216,7 +217,7 @@ export const BubbleToolbar = Extension.create({
             return new DOMRect(coords.left - 50, coords.top, 100, coords.bottom - coords.top)
           },
         },
-      } as BubbleMenuPluginProps),
+      }),
     ]
   },
 })

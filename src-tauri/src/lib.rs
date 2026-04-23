@@ -4,6 +4,27 @@ pub mod commands;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 
+/// Extract file paths from Windows command-line arguments.
+/// When a user double-clicks an associated file, Windows passes the path as
+/// the first argument: `Lexx.exe path\to\file.md`.
+#[cfg(target_os = "windows")]
+fn windows_argv_files() -> Vec<String> {
+    let mut files = Vec::new();
+    // args()[0] is the exe path; subsequent args may be file paths.
+    for arg in std::env::args().skip(1) {
+        let lower = arg.to_lowercase();
+        if lower.ends_with(".md")
+            || lower.ends_with(".markdown")
+            || lower.ends_with(".mdx")
+        {
+            if std::path::Path::new(&arg).exists() {
+                files.push(arg);
+            }
+        }
+    }
+    files
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -27,6 +48,22 @@ pub fn run() {
             commands::drain_pending_files,
         ])
         .setup(|app| {
+            // On Windows, file associations pass the path as a CLI argument.
+            // Buffer them here so the frontend can drain_pending_files on mount.
+            #[cfg(target_os = "windows")]
+            {
+                let files = windows_argv_files();
+                if !files.is_empty() {
+                    if let Some(pending) = app.try_state::<commands::PendingFiles>() {
+                        if let Ok(mut buf) = pending.0.lock() {
+                            for f in files {
+                                buf.push(f);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Native menu bar — macOS only.
             // On Windows the menu is replaced by a lightweight frontend toolbar.
             #[cfg(target_os = "macos")]

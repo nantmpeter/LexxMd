@@ -152,6 +152,14 @@ html, body {
 .block-edit-mode em::after      { content: '*'; color: #999; }
 .block-edit-mode s::before      { content: '~~'; color: #999; }
 .block-edit-mode s::after       { content: '~~'; color: #999; }
+.block-edit-mode mark::before   { content: '=='; color: #999; }
+.block-edit-mode mark::after    { content: '=='; color: #999; }
+.block-edit-mode u::before      { content: '++'; color: #999; }
+.block-edit-mode u::after       { content: '++'; color: #999; }
+.block-edit-mode sub::before    { content: '~'; color: #999; }
+.block-edit-mode sub::after     { content: '~'; color: #999; }
+.block-edit-mode sup::before    { content: '^'; color: #999; }
+.block-edit-mode sup::after     { content: '^'; color: #999; }
 
 /* Inline code backtick markers in edit mode */
 .block-edit-mode code::before   { content: '`'; color: #999; }
@@ -164,6 +172,14 @@ html, body {
 .block-render-mode em::after,
 .block-render-mode s::before,
 .block-render-mode s::after,
+.block-render-mode mark::before,
+.block-render-mode mark::after,
+.block-render-mode u::before,
+.block-render-mode u::after,
+.block-render-mode sub::before,
+.block-render-mode sub::after,
+.block-render-mode sup::before,
+.block-render-mode sup::after,
 .block-render-mode code::before,
 .block-render-mode code::after {
   content: '';
@@ -231,6 +247,14 @@ html, body {
 .ProseMirror strong { font-weight: 700; }
 .ProseMirror em { font-style: italic; }
 .ProseMirror s { text-decoration: line-through; color: var(--text-secondary); }
+.ProseMirror mark {
+  background: #fef08a;
+  border-radius: 2px;
+  padding: 0.05em 0.15em;
+}
+.ProseMirror u { text-decoration: underline; }
+.ProseMirror sub { font-size: 0.75em; vertical-align: sub; }
+.ProseMirror sup { font-size: 0.75em; vertical-align: super; }
 .ProseMirror code {
   background: var(--code-bg);
   border-radius: 3px;
@@ -613,6 +637,14 @@ html, body {
   .block-edit-mode em::after,
   .block-edit-mode s::before,
   .block-edit-mode s::after,
+  .block-edit-mode mark::before,
+  .block-edit-mode mark::after,
+  .block-edit-mode u::before,
+  .block-edit-mode u::after,
+  .block-edit-mode sub::before,
+  .block-edit-mode sub::after,
+  .block-edit-mode sup::before,
+  .block-edit-mode sup::after,
   .block-edit-mode code::before,
   .block-edit-mode code::after,
   .block-edit-mode h1::before,
@@ -654,5 +686,151 @@ html, body {
 .nav-btn:hover {
   background: var(--border);
   color: var(--text);
+}
+
+/* ── Bubble Toolbar ──────────────────────────────────────── */
+
+.bubble-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-dark);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08);
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Hide Tippy's default arrow */
+.tippy-box[data-theme~=""] .tippy-arrow {
+  display: none;
+}
+
+.bubble-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+
+.bubble-toolbar button[data-cmd="bold"] { font-weight: 800; }
+.bubble-toolbar button[data-cmd="italic"] { font-style: italic; }
+.bubble-toolbar button[data-cmd="strike"] { text-decoration: line-through; }
+.bubble-toolbar button[data-cmd="code"] { font-family: 'Fira Code', Consolas, monospace; font-size: 11px; }
+
+.bubble-toolbar button:hover {
+  background: var(--bg-secondary);
+}
+
+.bubble-toolbar button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.bubble-toolbar button mark {
+  background: var(--hljs-type);
+  color: #fff;
+  padding: 0 2px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.bubble-toolbar .bubble-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* ── Link Popup ──────────────────────────────────────────── */
+
+.link-popup {
+  position: fixed;
+  z-index: 10001;
+  background: var(--bg);
+  border: 1px solid var(--border-dark);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  min-width: 320px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.link-popup-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.link-popup-input:focus {
+  border-color: var(--accent);
+}
+
+.link-popup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.link-popup-actions button {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+
+.link-popup-ok {
+  background: var(--accent);
+  color: #fff;
+}
+
+.link-popup-ok:hover {
+  opacity: 0.9;
+}
+
+.link-popup-cancel {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.link-popup-cancel:hover {
+  background: var(--border);
+}
+
+.link-popup-remove {
+  background: none;
+  color: var(--hljs-keyword);
+  padding: 6px 12px !important;
+}
+
+.link-popup-remove:hover {
+  background: var(--error-bg);
 }
 

@@ -12,7 +12,11 @@ export const TrailingNode = Extension.create({
   addProseMirrorPlugins() {
     const plugin = new Plugin({
       key: new PluginKey('trailingNode'),
-      appendTransaction(_, __, state) {
+      appendTransaction(transactions, _, state) {
+        // Only check if the document was actually modified
+        const docChanged = transactions.some(tr => tr.docChanged)
+        if (!docChanged) return null
+
         const { doc, schema } = state
         const lastNode = doc.lastChild
 

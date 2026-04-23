@@ -11,6 +11,10 @@ import StarterKit from '@tiptap/starter-kit'
 import Typography from '@tiptap/extension-typography'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
+import Highlight from '@tiptap/extension-highlight'
+import Subscript from '@tiptap/extension-subscript'
+import Superscript from '@tiptap/extension-superscript'
+import Underline from '@tiptap/extension-underline'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Table from '@tiptap/extension-table'
@@ -25,6 +29,9 @@ import { createLowlight, common } from 'lowlight'
 import { DualModeExtension } from './extensions/dual-mode'
 import { FixContentParsing } from './extensions/fix-content-parsing'
 import { TrailingNode } from './extensions/trailing-node'
+import { TaskListInputRule } from './extensions/task-list-input'
+import { MarkdownItPlugins } from './extensions/markdown-it-plugins'
+import { BubbleToolbar } from './extensions/bubble-toolbar'
 
 const lowlight = createLowlight(common)
 
@@ -36,6 +43,48 @@ export function createEditor(element: HTMLElement, content: string = '', getFile
         codeBlock: false,
       }),
       Typography,
+      Highlight.configure({
+        multicolor: false,
+      }).extend({
+        addStorage() {
+          return {
+            markdown: {
+              serialize: { open: '==', close: '==', expelEnclosingWhitespace: true },
+              parse: { /* handled by markdown-it mark plugin */ },
+            },
+          }
+        },
+      }),
+      Subscript.extend({
+        addStorage() {
+          return {
+            markdown: {
+              serialize: { open: '~', close: '~', expelEnclosingWhitespace: true },
+              parse: { /* handled by markdown-it sub plugin */ },
+            },
+          }
+        },
+      }),
+      Superscript.extend({
+        addStorage() {
+          return {
+            markdown: {
+              serialize: { open: '^', close: '^', expelEnclosingWhitespace: true },
+              parse: { /* handled by markdown-it sup plugin */ },
+            },
+          }
+        },
+      }),
+      Underline.extend({
+        addStorage() {
+          return {
+            markdown: {
+              serialize: { open: '++', close: '++', expelEnclosingWhitespace: true },
+              parse: { /* handled by custom rule */ },
+            },
+          }
+        },
+      }),
       Link.configure({
         openOnClick: false,
       }),
@@ -73,6 +122,9 @@ export function createEditor(element: HTMLElement, content: string = '', getFile
       }),
       FixContentParsing,
       TrailingNode,
+      TaskListInputRule,
+      MarkdownItPlugins,
+      BubbleToolbar,
     ],
     content: content || '',
     editorProps: {

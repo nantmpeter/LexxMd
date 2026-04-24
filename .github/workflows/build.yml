@@ -8,12 +8,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
 
 jobs:
   build:
@@ -74,9 +68,6 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,7 +81,7 @@ jobs:
       - run: npm run build
         working-directory: website
 
-      # Download release assets (installers + signatures + latest.json)
+      # Download update-relevant assets from release
       - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -99,12 +90,29 @@ jobs:
           gh release download ${{ github.ref_name }} \
             --dir website/.vitepress/dist/update \
             --pattern "*.sig" \
+            --pattern "*.app.tar.gz" \
+            --pattern "*-setup.exe" \
             --pattern "latest.json" || true
 
-      # Upload combined artifact and deploy
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: website/.vitepress/dist
+      # Rewrite latest.json URLs to point to Cloudflare Pages
+      - name: Rewrite update URLs
+        run: |
+          FILE="website/.vitepress/dist/update/latest.json"
+          if [ -f "$FILE" ]; then
+            BASE="https://lexx.pages.dev"
+            jq --arg base "$BASE" '
+              .platforms |= (
+                to_entries | map(
+                  .value.url = ($base + "/update/" + (.value.url | split("/") | last))
+                ) | from_entries
+              )
+            ' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+          fi
 
-      - uses: actions/deploy-pages@v4
-        id: deployment
+      # Deploy to Cloudflare Pages
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy website/.vitepress/dist --project-name=lexx

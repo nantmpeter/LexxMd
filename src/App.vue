@@ -41,6 +41,13 @@
     <Transition name="toast">
       <div v-if="toast" class="toast" :class="toast.type">{{ toast.message }}</div>
     </Transition>
+    <Transition name="toast">
+      <div v-if="updateInfo" class="toast update-toast">
+        <span>New version {{ updateInfo.version }} available</span>
+        <button class="update-btn" @click="installUpdate">Update & Restart</button>
+        <button class="update-dismiss" @click="updateInfo = null">&times;</button>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -63,6 +70,7 @@ const editorContainerEl = ref<HTMLElement | null>(null)
 const openFiles = ref<FileSlot[]>([])
 const activeFileId = ref('')
 const toast = ref<{ message: string; type: 'error' | 'success' } | null>(null)
+const updateInfo = ref<{ version: string; downloadAndInstall: () => Promise<void> } | null>(null)
 const sourceMode = ref(false)
 const sourceEditorEl = ref<HTMLElement | null>(null)
 let sourceEditor: ReturnType<typeof createSourceEditor> | null = null
@@ -109,6 +117,35 @@ function showToast(message: string, type: 'error' | 'success' = 'error') {
   if (toastTimeout) clearTimeout(toastTimeout)
   toast.value = { message, type }
   toastTimeout = setTimeout(() => { toast.value = null }, 4000)
+}
+
+// ── Auto-update ─────────────────────────────────────────────
+
+async function checkForUpdate() {
+  try {
+    const { check } = await import('@tauri-apps/plugin-updater')
+    const update = await check()
+    if (update) {
+      updateInfo.value = {
+        version: update.version,
+        downloadAndInstall: () => update.downloadAndInstall(),
+      }
+    }
+  } catch {
+    // Not in Tauri or updater not configured
+  }
+}
+
+async function installUpdate() {
+  if (!updateInfo.value) return
+  try {
+    showToast('Downloading update...', 'success')
+    await updateInfo.value.downloadAndInstall()
+    const { relaunch } = await import('@tauri-apps/plugin-process')
+    await relaunch()
+  } catch (e) {
+    showToast(`Update failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 // ── Markdown content ───────────────────────────────────────
@@ -665,6 +702,9 @@ onMounted(async () => {
     // Not running in Tauri
   }
 
+  // Check for updates (background, non-blocking)
+  checkForUpdate()
+
   // Crash recovery
   await checkCrashRecovery()
 })
@@ -770,6 +810,44 @@ onBeforeUnmount(() => {
   background: #dcffe4;
   color: #144620;
   border: 1px solid #34d058;
+}
+.update-toast {
+  background: var(--bg-secondary, #f6f8fa);
+  color: var(--text, #24292e);
+  border: 1px solid var(--border, #e1e4e8);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  bottom: 24px;
+  right: 24px;
+}
+.update-toast span {
+  flex: 1;
+}
+.update-btn {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: none;
+  background: #0366d6;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.update-btn:hover {
+  background: #0550ae;
+}
+.update-dismiss {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #999;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.update-dismiss:hover {
+  color: #333;
 }
 .toast-enter-active,
 .toast-leave-active {

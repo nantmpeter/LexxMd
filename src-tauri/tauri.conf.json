@@ -33,6 +33,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -43,5 +44,13 @@
     "fileAssociations": [
       { "ext": ["md", "markdown", "mdx"], "name": "Markdown", "role": "Editor" }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZCMzIyQ0M4NUVBNDc2NzUKUldSMWRxUmV5Q3d5YS9nZWVLc2V0MENORVlLUzdSN29QSGpMdEFOc0xhc1lodCtickhYRU45aXoK",
+      "endpoints": [
+        "https://nantmpeter.github.io/LexxMd/update/latest.json"
+      ]
+    }
   }
 }

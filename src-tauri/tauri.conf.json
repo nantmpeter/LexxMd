@@ -49,7 +49,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZCMzIyQ0M4NUVBNDc2NzUKUldSMWRxUmV5Q3d5YS9nZWVLc2V0MENORVlLUzdSN29QSGpMdEFOc0xhc1lodCtickhYRU45aXoK",
       "endpoints": [
-        "https://lexx.pages.dev/update/latest.json"
+        "https://lexxmd.pages.dev/update/latest.json"
       ]
     }
   }

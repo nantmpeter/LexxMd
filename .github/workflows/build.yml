@@ -99,7 +99,7 @@ jobs:
         run: |
           FILE="website/.vitepress/dist/update/latest.json"
           if [ -f "$FILE" ]; then
-            BASE="https://lexx.pages.dev"
+            BASE="https://lexxmd.pages.dev"
             jq --arg base "$BASE" '
               .platforms |= (
                 to_entries | map(
@@ -115,4 +115,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy website/.vitepress/dist --project-name=lexx
+          command: pages deploy website/.vitepress/dist --project-name=lexxmd --commit-dirty=true

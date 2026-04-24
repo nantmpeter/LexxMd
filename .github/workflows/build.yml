@@ -81,18 +81,14 @@ jobs:
       - run: npm run build
         working-directory: website
 
-      # Download update-relevant assets from release
+      # Download all assets from release
       - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p website/.vitepress/dist/update
           gh release download ${{ github.ref_name }} \
-            --dir website/.vitepress/dist/update \
-            --pattern "*.sig" \
-            --pattern "*.app.tar.gz" \
-            --pattern "*-setup.exe" \
-            --pattern "latest.json" || true
+            --dir website/.vitepress/dist/update || true
 
       # Rewrite latest.json URLs to point to Cloudflare Pages
       - name: Rewrite update URLs

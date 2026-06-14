@@ -41,11 +41,6 @@ pub fn list_directory(dir_path: String) -> Result<Vec<DirEntry>, String> {
         let entry = entry.map_err(|e| e.to_string())?;
         let file_name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip dotfiles / dot-directories (e.g. .git, .DS_Store, .idea)
-        if file_name.starts_with('.') {
-            continue;
-        }
-
         let file_path = entry.path();
         let is_dir = file_path.is_dir();
         let ext = file_path

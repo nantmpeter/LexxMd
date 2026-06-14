@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 
 defineProps<{
   query: string
@@ -59,7 +59,15 @@ function focus() {
   inputEl.value?.select()
 }
 
-// Parent drives focus timing (nextTick + rAF + retry) via this handle.
+// Grab focus as soon as the bar mounts so typing goes into the search field,
+// not the editor (the editor's contenteditable would otherwise keep focus).
+onMounted(() => {
+  // rAF defers until after the browser has laid out the new element, beating
+  // any focus the editor tries to retain from the triggering keydown.
+  requestAnimationFrame(focus)
+})
+
+// Parent drives focus timing (e.g. after replace) via this handle.
 defineExpose({
   focus,
   get el() {

@@ -109,7 +109,6 @@ const replaceQuery = ref('')
 const searchActiveIndex = ref(-1)
 const searchTotal = ref(0)
 const searchInputEl = ref<InstanceType<typeof FindBar> | null>(null)
-let searchQueryReplacePending = false
 
 const quickOpenOpen = ref(false)
 const quickOpenFiles = ref<QuickOpenFile[]>([])
@@ -211,22 +210,15 @@ function applySearchQuery() {
 }
 
 function focusSearchInput() {
-  const focus = () => {
-    searchInputEl.value?.focus()
-  }
-
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      focus()
-      setTimeout(focus, 30)
-    })
-  })
+  // The find bar is v-if'd, so wait one tick for it to mount before focusing.
+  nextTick(() => searchInputEl.value?.focus())
 }
 
-function openSearch() {
+function openSearch(initialQuery = '') {
   if (sourceMode.value) return
+  searchQuery.value = initialQuery
+  replaceQuery.value = ''
   searchOpen.value = true
-  searchQueryReplacePending = true
   updateSearch(activeEditor.value, { query: searchQuery.value })
   syncSearchState()
   focusSearchInput()
@@ -235,7 +227,6 @@ function openSearch() {
 function closeSearch() {
   updateSearch(activeEditor.value, { query: '' })
   searchOpen.value = false
-  searchQueryReplacePending = false
   searchQuery.value = ''
   syncSearchState()
   nextTick(() => activeEditor.value?.commands.focus())
@@ -282,56 +273,6 @@ function replaceAllMatches() {
 function onSearchEnter(event: KeyboardEvent) {
   if (event.shiftKey) goToPreviousSearchMatch()
   else goToNextSearchMatch()
-}
-
-function routeSearchKey(event: KeyboardEvent): boolean {
-  // When the find bar is open we hijack plain typing into the editor so it
-  // feeds the search query; but never when focus is already in an input
-  // (the find-bar inputs, sidebar, etc. handle their own keystrokes).
-  if (
-    !searchOpen.value ||
-    sourceMode.value ||
-    document.activeElement instanceof HTMLInputElement ||
-    document.activeElement instanceof HTMLTextAreaElement
-  ) {
-    return false
-  }
-
-  if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) {
-    return false
-  }
-
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeSearch()
-    return true
-  }
-
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    onSearchEnter(event)
-    return true
-  }
-
-  if (event.key === 'Backspace') {
-    event.preventDefault()
-    searchQuery.value = searchQuery.value.slice(0, -1)
-    searchQueryReplacePending = false
-    focusSearchInput()
-    return true
-  }
-
-  if (event.key.length === 1) {
-    event.preventDefault()
-    searchQuery.value = searchQueryReplacePending
-      ? event.key
-      : `${searchQuery.value}${event.key}`
-    searchQueryReplacePending = false
-    focusSearchInput()
-    return true
-  }
-
-  return false
 }
 
 // ── Quick open ─────────────────────────────────────────────
@@ -1020,7 +961,7 @@ onMounted(async () => {
     // Not running in Tauri
   }
   // Always register keyboard shortcuts (menu accelerators may not forward to frontend on all platforms)
-  window.addEventListener('keydown', onAcceleratorKey, true)
+  window.addEventListener('keydown', onAcceleratorKey)
   window.addEventListener('keydown', onCycleKey)
 
   // Window close
@@ -1070,7 +1011,6 @@ function onMenuBarEvent(id: string) {
 }
 
 function onAcceleratorKey(e: KeyboardEvent) {
-  if (routeSearchKey(e)) return
 
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
     if (sourceMode.value) return
@@ -1121,7 +1061,7 @@ onBeforeUnmount(() => {
   clearAllAutoSaveTimers()
   if (unlistenMenu) unlistenMenu()
   if (sourceEditor) sourceEditor.destroy()
-  window.removeEventListener('keydown', onAcceleratorKey, true)
+  window.removeEventListener('keydown', onAcceleratorKey)
   window.removeEventListener('keydown', onCycleKey)
   if (toastTimeout) clearTimeout(toastTimeout)
   for (const slot of openFiles.value) {

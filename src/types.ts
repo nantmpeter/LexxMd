@@ -22,3 +22,9 @@ export interface TreeNode {
   expanded: boolean
   loaded: boolean
 }
+
+export interface QuickOpenFile {
+  name: string
+  path: string
+  relativePath: string
+}

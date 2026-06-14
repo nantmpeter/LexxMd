@@ -1,6 +1,31 @@
 <template>
   <div class="app">
     <MenuBar v-if="!isMac" @menu-event="onMenuBarEvent" />
+    <FindBar
+      v-if="searchOpen && !sourceMode"
+      ref="searchInputEl"
+      :query="searchQuery"
+      :replace="replaceQuery"
+      :count-label="searchCountLabel"
+      :disabled="searchTotal === 0"
+      @update:query="searchQuery = $event"
+      @update:replace="replaceQuery = $event"
+      @next="goToNextSearchMatch"
+      @previous="goToPreviousSearchMatch"
+      @replace="replaceCurrentMatch"
+      @replace-all="replaceAllMatches"
+      @close="closeSearch"
+      @enter="onSearchEnter"
+    />
+    <QuickOpen
+      v-if="quickOpenOpen"
+      ref="quickOpenEl"
+      :files="quickOpenFiles"
+      :loading="quickOpenLoading"
+      :error="quickOpenError"
+      @select="openQuickOpenFile"
+      @close="closeQuickOpen"
+    />
     <button
       v-if="sourceMode"
       class="source-exit-btn"
@@ -55,14 +80,18 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { createEditor } from './editor/index'
 import { createSourceEditor } from './editor/source-editor'
+import { getSearchState, replaceActiveSearchMatch, replaceAllSearchMatches, updateSearch } from './editor/extensions/search-match'
 import StatusBar from './ui/StatusBar.vue'
 import OutlineView from './ui/OutlineView.vue'
 import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
-import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, tempSave, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, toggleFullscreen, drainPendingFiles } from './tauri/commands'
+import FindBar from './ui/FindBar.vue'
+import QuickOpen from './ui/QuickOpen.vue'
+import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, tempSave, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, toggleFullscreen, drainPendingFiles, listDirectory } from './tauri/commands'
+import type { DirEntry } from './tauri/commands'
 import { exportPDF, exportDOCX, exportJPEG } from './export'
 import { arrayBufferToBase64 } from './export/utils'
-import type { FileSlot } from './types'
+import type { FileSlot, QuickOpenFile } from './types'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -74,6 +103,30 @@ const updateInfo = ref<{ version: string; downloadAndInstall: () => Promise<void
 const sourceMode = ref(false)
 const sourceEditorEl = ref<HTMLElement | null>(null)
 let sourceEditor: ReturnType<typeof createSourceEditor> | null = null
+const searchOpen = ref(false)
+const searchQuery = ref('')
+const replaceQuery = ref('')
+const searchActiveIndex = ref(-1)
+const searchTotal = ref(0)
+const searchInputEl = ref<InstanceType<typeof FindBar> | null>(null)
+let searchQueryReplacePending = false
+
+const quickOpenOpen = ref(false)
+const quickOpenFiles = ref<QuickOpenFile[]>([])
+const quickOpenLoading = ref(false)
+const quickOpenError = ref('')
+const quickOpenEl = ref<InstanceType<typeof QuickOpen> | null>(null)
+
+// Scan cache + cancellation. A monotonically increasing token invalidates
+// stale scans (folder switch, close, re-open) so an old slow scan can never
+// overwrite a fresher result.
+interface QuickOpenCacheEntry {
+  files: QuickOpenFile[]
+  scannedAt: number
+}
+const QUICK_OPEN_CACHE_TTL_MS = 30_000
+const quickOpenCache = new Map<string, QuickOpenCacheEntry>()
+let quickOpenScanToken = 0
 
 // ── Sidebar / workspace state ────────────────────────────────
 const workspaceRoot = ref<string | null>(null)
@@ -105,6 +158,11 @@ const activeFile = computed(() =>
 const activeEditor = computed(() => activeFile.value?.editor ?? null)
 const activeFilename = computed(() => activeFile.value?.filename ?? 'Untitled.md')
 const activeDirty = computed(() => activeFile.value?.dirty ?? false)
+const searchCountLabel = computed(() => {
+  if (!searchQuery.value) return ''
+  if (searchTotal.value === 0) return '0/0'
+  return `${searchActiveIndex.value + 1}/${searchTotal.value}`
+})
 
 // Sync filename to native window title
 watch(activeFilename, (fn) => {
@@ -117,6 +175,295 @@ function showToast(message: string, type: 'error' | 'success' = 'error') {
   if (toastTimeout) clearTimeout(toastTimeout)
   toast.value = { message, type }
   toastTimeout = setTimeout(() => { toast.value = null }, 4000)
+}
+
+// ── Find in document ───────────────────────────────────────
+
+function syncSearchState() {
+  const state = getSearchState(activeEditor.value)
+  searchActiveIndex.value = state.activeIndex
+  searchTotal.value = state.matches.length
+}
+
+function scrollToActiveSearchMatch() {
+  const editor = activeEditor.value
+  const container = editorContainerEl.value
+  const state = getSearchState(editor)
+  const match = state.matches[state.activeIndex]
+  if (!editor || !container || !match) return
+
+  requestAnimationFrame(() => {
+    try {
+      const coords = editor.view.coordsAtPos(match.from)
+      const rect = container.getBoundingClientRect()
+      const top = container.scrollTop + (coords.top - rect.top) - rect.height / 3
+      container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    } catch {
+      // The document may have changed before the browser paints.
+    }
+  })
+}
+
+function applySearchQuery() {
+  updateSearch(activeEditor.value, { query: searchQuery.value })
+  syncSearchState()
+  scrollToActiveSearchMatch()
+}
+
+function focusSearchInput() {
+  const focus = () => {
+    searchInputEl.value?.focus()
+  }
+
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      focus()
+      setTimeout(focus, 30)
+    })
+  })
+}
+
+function openSearch() {
+  if (sourceMode.value) return
+  searchOpen.value = true
+  searchQueryReplacePending = true
+  updateSearch(activeEditor.value, { query: searchQuery.value })
+  syncSearchState()
+  focusSearchInput()
+}
+
+function closeSearch() {
+  updateSearch(activeEditor.value, { query: '' })
+  searchOpen.value = false
+  searchQueryReplacePending = false
+  searchQuery.value = ''
+  syncSearchState()
+  nextTick(() => activeEditor.value?.commands.focus())
+}
+
+function goToSearchMatch(delta: number) {
+  const state = getSearchState(activeEditor.value)
+  if (state.matches.length === 0) return
+
+  const nextIndex = state.activeIndex + delta
+  updateSearch(activeEditor.value, {
+    query: searchQuery.value,
+    activeIndex: nextIndex,
+  })
+  syncSearchState()
+  scrollToActiveSearchMatch()
+}
+
+function goToNextSearchMatch() {
+  goToSearchMatch(1)
+}
+
+function goToPreviousSearchMatch() {
+  goToSearchMatch(-1)
+}
+
+function replaceCurrentMatch() {
+  replaceActiveSearchMatch(activeEditor.value, replaceQuery.value)
+  updateSearch(activeEditor.value, { query: searchQuery.value })
+  syncSearchState()
+  scrollToActiveSearchMatch()
+  scheduleAutoSaveForActiveFile()
+  focusSearchInput()
+}
+
+function replaceAllMatches() {
+  replaceAllSearchMatches(activeEditor.value, replaceQuery.value)
+  updateSearch(activeEditor.value, { query: searchQuery.value })
+  syncSearchState()
+  scheduleAutoSaveForActiveFile()
+  focusSearchInput()
+}
+
+function onSearchEnter(event: KeyboardEvent) {
+  if (event.shiftKey) goToPreviousSearchMatch()
+  else goToNextSearchMatch()
+}
+
+function routeSearchKey(event: KeyboardEvent): boolean {
+  // When the find bar is open we hijack plain typing into the editor so it
+  // feeds the search query; but never when focus is already in an input
+  // (the find-bar inputs, sidebar, etc. handle their own keystrokes).
+  if (
+    !searchOpen.value ||
+    sourceMode.value ||
+    document.activeElement instanceof HTMLInputElement ||
+    document.activeElement instanceof HTMLTextAreaElement
+  ) {
+    return false
+  }
+
+  if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) {
+    return false
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeSearch()
+    return true
+  }
+
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    onSearchEnter(event)
+    return true
+  }
+
+  if (event.key === 'Backspace') {
+    event.preventDefault()
+    searchQuery.value = searchQuery.value.slice(0, -1)
+    searchQueryReplacePending = false
+    focusSearchInput()
+    return true
+  }
+
+  if (event.key.length === 1) {
+    event.preventDefault()
+    searchQuery.value = searchQueryReplacePending
+      ? event.key
+      : `${searchQuery.value}${event.key}`
+    searchQueryReplacePending = false
+    focusSearchInput()
+    return true
+  }
+
+  return false
+}
+
+// ── Quick open ─────────────────────────────────────────────
+
+const QUICK_OPEN_MAX_FILES = 500
+const QUICK_OPEN_MAX_DIRS = 300
+// Non-hidden build/dependency dirs that are expensive to recurse and rarely
+// contain user docs. Dotfile directories (`.git`, `.DS_Store`, …) are already
+// hidden by the `list_directory` backend.
+const QUICK_OPEN_SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  'target',
+  'build',
+  'out',
+])
+
+function relativePathFromRoot(path: string, root: string): string {
+  const normalizedRoot = root.replace(/[/\\]+$/, '')
+  return path
+    .slice(normalizedRoot.length)
+    .replace(/^[/\\]+/, '')
+    .replace(/\\/g, '/')
+}
+
+async function collectQuickOpenFiles(
+  dirPath: string,
+  rootPath: string,
+  files: QuickOpenFile[],
+  counters: { dirs: number },
+  isCancelled: () => boolean,
+) {
+  if (isCancelled()) return
+  if (files.length >= QUICK_OPEN_MAX_FILES || counters.dirs >= QUICK_OPEN_MAX_DIRS) return
+
+  counters.dirs += 1
+  const entries = await listDirectory(dirPath)
+
+  if (isCancelled()) return
+
+  const directories: DirEntry[] = []
+  for (const entry of entries) {
+    if (files.length >= QUICK_OPEN_MAX_FILES) return
+    if (entry.is_dir) {
+      if (!QUICK_OPEN_SKIP_DIRS.has(entry.name)) directories.push(entry)
+      continue
+    }
+
+    if (entry.is_markdown) {
+      files.push({
+        name: entry.name,
+        path: entry.path,
+        relativePath: relativePathFromRoot(entry.path, rootPath),
+      })
+    }
+  }
+
+  for (const directory of directories) {
+    if (files.length >= QUICK_OPEN_MAX_FILES || counters.dirs >= QUICK_OPEN_MAX_DIRS) return
+    await collectQuickOpenFiles(directory.path, rootPath, files, counters, isCancelled)
+  }
+}
+
+async function refreshQuickOpenFiles(force = false) {
+  const root = workspaceRoot.value
+  if (!root) return
+
+  // Serve from cache when fresh (unless force-refreshed).
+  const cached = quickOpenCache.get(root)
+  const now = Date.now()
+  if (!force && cached && now - cached.scannedAt < QUICK_OPEN_CACHE_TTL_MS) {
+    quickOpenFiles.value = cached.files
+    return
+  }
+
+  // Invalidate any in-flight scan and start a new one.
+  const token = ++quickOpenScanToken
+  const isCancelled = () => token !== quickOpenScanToken
+
+  quickOpenLoading.value = true
+  quickOpenError.value = ''
+
+  try {
+    const files: QuickOpenFile[] = []
+    await collectQuickOpenFiles(root, root, files, { dirs: 0 }, isCancelled)
+
+    // A newer scan started (or this one was cancelled); discard results.
+    if (isCancelled()) return
+
+    files.sort((a, b) =>
+      a.relativePath.toLocaleLowerCase().localeCompare(b.relativePath.toLocaleLowerCase())
+    )
+    quickOpenCache.set(root, { files, scannedAt: Date.now() })
+    quickOpenFiles.value = files
+  } catch (error) {
+    if (isCancelled()) return
+    quickOpenError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    if (!isCancelled()) quickOpenLoading.value = false
+  }
+}
+
+async function openQuickOpen() {
+  if (!workspaceRoot.value) {
+    showToast('Open a folder before using Quick Open')
+    return
+  }
+
+  quickOpenOpen.value = true
+  nextTick(() => quickOpenEl.value?.focus())
+
+  // Refresh in the background if no cached result; cache hit keeps it instant.
+  const cached = quickOpenCache.get(workspaceRoot.value)
+  const fresh = cached && Date.now() - cached.scannedAt < QUICK_OPEN_CACHE_TTL_MS
+  if (!fresh) {
+    await refreshQuickOpenFiles()
+    nextTick(() => quickOpenEl.value?.focus())
+  } else {
+    quickOpenFiles.value = cached!.files
+  }
+}
+
+function closeQuickOpen() {
+  // Invalidate any in-flight scan so it does not overwrite state after close.
+  quickOpenScanToken += 1
+  quickOpenOpen.value = false
+}
+
+
+function openQuickOpenFile(file: QuickOpenFile) {
+  closeQuickOpen()
+  openFileFromTree(file.path)
 }
 
 // ── Auto-update ─────────────────────────────────────────────
@@ -203,6 +550,13 @@ function scheduleAutoSave(slot: FileSlot) {
   clearAutoSaveTimer(slot)
   const timer = setTimeout(() => performAutoSave(slot), AUTO_SAVE_DELAY)
   autoSaveTimers.set(slot.id, timer)
+}
+
+function scheduleAutoSaveForActiveFile() {
+  const slot = activeFile.value
+  if (!slot) return
+  slot.dirty = true
+  scheduleAutoSave(slot)
 }
 
 // ── Slot management ────────────────────────────────────────
@@ -389,6 +743,7 @@ function toggleSourceMode() {
     const md = getMarkdownContent(slot)
     if (md === null) return
 
+    closeSearch()
     sourceMode.value = true
 
     // Lazy-create CodeMirror on first toggle
@@ -629,24 +984,7 @@ onMounted(async () => {
   }
 
   // ── Frontend menu bar (Windows) ────────────────────────────
-
-  function onMenuBarEvent(id: string) {
-    if (id === 'vf') {
-      toggleFullscreen().catch(() => {})
-      return
-    }
-    switch (id) {
-      case 'fn': handleNew(); break
-      case 'fo': handleOpen(); break
-      case 'ff': handleOpenFolder(); break
-      case 'fs': handleSave(); break
-      case 'fc': handleClose(); break
-      case 'vs': toggleSourceMode(); break
-      case 'ep': handleExportPDF(); break
-      case 'ed': handleExportDOCX(); break
-      case 'ej': handleExportJPEG(); break
-    }
-  }
+  // (onMenuBarEvent is defined at top level so the template can bind it)
 
   // Menu events + keyboard shortcuts
   try {
@@ -656,7 +994,9 @@ onMounted(async () => {
         case 'fn': handleNew(); break
         case 'fo': handleOpen(); break
         case 'ff': handleOpenFolder(); break
+        case 'fq': openQuickOpen(); break
         case 'fs': handleSave(); break
+        case 'ef': openSearch(); break
         case 'fc': handleClose(); break
         case 'vs': toggleSourceMode(); break
         case 'ep': handleExportPDF(); break
@@ -680,7 +1020,7 @@ onMounted(async () => {
     // Not running in Tauri
   }
   // Always register keyboard shortcuts (menu accelerators may not forward to frontend on all platforms)
-  window.addEventListener('keydown', onAcceleratorKey)
+  window.addEventListener('keydown', onAcceleratorKey, true)
   window.addEventListener('keydown', onCycleKey)
 
   // Window close
@@ -709,7 +1049,35 @@ onMounted(async () => {
   await checkCrashRecovery()
 })
 
+function onMenuBarEvent(id: string) {
+  if (id === 'vf') {
+    toggleFullscreen().catch(() => {})
+    return
+  }
+  switch (id) {
+    case 'fn': handleNew(); break
+    case 'fo': handleOpen(); break
+    case 'ff': handleOpenFolder(); break
+    case 'fq': openQuickOpen(); break
+    case 'fs': handleSave(); break
+    case 'ef': openSearch(); break
+    case 'fc': handleClose(); break
+    case 'vs': toggleSourceMode(); break
+    case 'ep': handleExportPDF(); break
+    case 'ed': handleExportDOCX(); break
+    case 'ej': handleExportJPEG(); break
+  }
+}
+
 function onAcceleratorKey(e: KeyboardEvent) {
+  if (routeSearchKey(e)) return
+
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
+    if (sourceMode.value) return
+    e.preventDefault()
+    openSearch()
+  }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); openQuickOpen() }
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 's') { e.preventDefault(); handleSave() }
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'o') { e.preventDefault(); handleOpen() }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); handleOpenFolder() }
@@ -717,6 +1085,26 @@ function onAcceleratorKey(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') { e.preventDefault(); handleClose() }
   if (e.key === 'Escape' && sourceMode.value) { e.preventDefault(); toggleSourceMode() }
 }
+
+watch(activeEditor, () => {
+  if (!searchOpen.value) return
+  updateSearch(activeEditor.value, { query: searchQuery.value })
+  syncSearchState()
+  scrollToActiveSearchMatch()
+})
+
+watch(searchQuery, () => {
+  if (!searchOpen.value) return
+  applySearchQuery()
+})
+
+// Switching workspaces invalidates the file cache and any in-flight scan.
+watch(workspaceRoot, (next, prev) => {
+  if (next === prev) return
+  quickOpenScanToken += 1
+  quickOpenFiles.value = []
+  quickOpenCache.delete(prev ?? '')
+})
 
 function onCycleKey(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ']') {
@@ -733,7 +1121,7 @@ onBeforeUnmount(() => {
   clearAllAutoSaveTimers()
   if (unlistenMenu) unlistenMenu()
   if (sourceEditor) sourceEditor.destroy()
-  window.removeEventListener('keydown', onAcceleratorKey)
+  window.removeEventListener('keydown', onAcceleratorKey, true)
   window.removeEventListener('keydown', onCycleKey)
   if (toastTimeout) clearTimeout(toastTimeout)
   for (const slot of openFiles.value) {

@@ -25,7 +25,8 @@ pub async fn directory_open_dialog(
 }
 
 /// List entries in a directory. Returns sorted (dirs first, then files, alphabetical).
-/// Excludes hidden entries (starting with `.`).
+/// Excludes dotfile entries (names starting with `.`) so that `.git`,
+/// `.DS_Store`, `.idea`, etc. are hidden from the file tree and quick open.
 #[tauri::command]
 pub fn list_directory(dir_path: String) -> Result<Vec<DirEntry>, String> {
     let path = PathBuf::from(&dir_path);
@@ -40,7 +41,7 @@ pub fn list_directory(dir_path: String) -> Result<Vec<DirEntry>, String> {
         let entry = entry.map_err(|e| e.to_string())?;
         let file_name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip hidden entries
+        // Skip dotfiles / dot-directories (e.g. .git, .DS_Store, .idea)
         if file_name.starts_with('.') {
             continue;
         }

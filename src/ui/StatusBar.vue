@@ -8,7 +8,7 @@
       <span v-if="charCount > 0">{{ charCount }} chars</span>
     </div>
     <div class="statusbar-right">
-      <button class="mode-toggle" :class="{ active: sourceMode }" @click="$emit('toggle-source')">
+      <button class="mode-toggle" :class="{ active: sourceMode }" @click="onToggleSource">
         {{ sourceMode ? 'Markdown' : 'Source' }}
       </button>
     </div>
@@ -25,9 +25,13 @@ const props = defineProps<{
   sourceMode?: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'toggle-source': []
 }>()
+
+function onToggleSource() {
+  emit('toggle-source')
+}
 
 const wordCount = computed(() => {
   if (!props.editor) return 0

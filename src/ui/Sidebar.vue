@@ -130,6 +130,12 @@ function cancelHide() {
   if (hideTimer) { clearTimeout(hideTimer); hideTimer = null }
 }
 
+function hideOverlay() {
+  cancelShow()
+  cancelHide()
+  overlayOpen.value = false
+}
+
 onMounted(() => {
   checkVisibility()
   window.addEventListener('resize', checkVisibility)

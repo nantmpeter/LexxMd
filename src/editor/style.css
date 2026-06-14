@@ -104,6 +104,17 @@ html, body {
   margin: 0.5em auto;
 }
 
+/* ── Find in document ────────────────────────────────────── */
+.search-match {
+  background: rgba(255, 212, 0, 0.45);
+  border-radius: 2px;
+}
+
+.search-match-active {
+  background: rgba(255, 153, 0, 0.75);
+  box-shadow: 0 0 0 1px rgba(194, 111, 0, 0.45);
+}
+
 /* ── Headings ─────────────────────────────────────────────── */
 
 .ProseMirror h1 {
@@ -833,4 +844,3 @@ html, body {
 .link-popup-remove:hover {
   background: var(--error-bg);
 }
-

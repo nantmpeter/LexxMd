@@ -10,6 +10,7 @@ title: Keyboard Shortcuts
 |----------|-------|---------------|--------|
 | New | ⌘N | Ctrl+N | New untitled file |
 | Open | ⌘O | Ctrl+O | Open file dialog |
+| Quick Open | ⌘P | Ctrl+P | Quick open workspace file |
 | Save | ⌘S | Ctrl+S | Save current file |
 | Close | ⌘W | Ctrl+W | Close current tab |
 | | ⌘⇧] | Ctrl+Shift+] | Next tab |
@@ -27,6 +28,7 @@ title: Keyboard Shortcuts
 
 | Shortcut | macOS | Windows/Linux | Action |
 |----------|-------|---------------|--------|
+| Find | ⌘F | Ctrl+F | Find in current document |
 | Bold | ⌘B | Ctrl+B | Toggle bold |
 | Italic | ⌘I | Ctrl+I | Toggle italic |
 | | ⌘K | Ctrl+K | AI inline edit (on selection) |

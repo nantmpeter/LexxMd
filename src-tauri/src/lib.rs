@@ -80,6 +80,7 @@ pub fn run() {
                 let file_menu = Submenu::with_items(app, "File", true, &[
                     &MenuItem::with_id(app, "fn", "New", true, None::<String>)?,
                     &MenuItem::with_id(app, "fo", "Open...", true, None::<String>)?,
+                    &MenuItem::with_id(app, "fq", "Quick Open...", true, Some("CmdOrCtrl+P"))?,
                     &MenuItem::with_id(app, "ff", "Open Folder...", true, None::<String>)?,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(app, "fs", "Save", true, None::<String>)?,
@@ -100,6 +101,8 @@ pub fn run() {
                     &PredefinedMenuItem::cut(app, None)?,
                     &PredefinedMenuItem::copy(app, None)?,
                     &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &MenuItem::with_id(app, "ef", "Find...", true, Some("CmdOrCtrl+F"))?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::select_all(app, None)?,
                 ])?;

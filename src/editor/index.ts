@@ -32,6 +32,7 @@ import { TrailingNode } from './extensions/trailing-node'
 import { TaskListInputRule } from './extensions/task-list-input'
 import { MarkdownItPlugins } from './extensions/markdown-it-plugins'
 import { BubbleToolbar } from './extensions/bubble-toolbar'
+import { SearchMatchExtension } from './extensions/search-match'
 
 const lowlight = createLowlight(common)
 
@@ -124,6 +125,7 @@ export function createEditor(element: HTMLElement, content: string = '', getFile
       TrailingNode,
       TaskListInputRule,
       MarkdownItPlugins,
+      SearchMatchExtension,
       BubbleToolbar,
     ],
     content: content || '',

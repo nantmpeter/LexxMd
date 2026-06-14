@@ -52,6 +52,7 @@ const menus: MenuDef[] = [
     items: [
       { label: 'New', action: 'fn', accel: 'Ctrl+N' },
       { label: 'Open...', action: 'fo', accel: 'Ctrl+O' },
+      { label: 'Quick Open...', action: 'fq', accel: 'Ctrl+P' },
       { label: 'Open Folder...', action: 'ff', accel: 'Ctrl+Shift+O' },
       '---',
       { label: 'Save', action: 'fs', accel: 'Ctrl+S' },
@@ -61,6 +62,12 @@ const menus: MenuDef[] = [
       { label: 'Export as JPEG...', action: 'ej' },
       '---',
       { label: 'Close', action: 'fc', accel: 'Ctrl+W' },
+    ],
+  },
+  {
+    label: 'Edit',
+    items: [
+      { label: 'Find...', action: 'ef', accel: 'Ctrl+F' },
     ],
   },
   {

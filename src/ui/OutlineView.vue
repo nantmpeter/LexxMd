@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import type { Editor } from '@tiptap/core'
 
 interface HeadingItem {
@@ -228,42 +228,41 @@ function onEditorScroll() {
 
 // ── Lifecycle ───────────────────────────────────────────────
 
-watch(() => props.editor, (editor) => {
-  if (editor) {
-    refreshHeadings()
-    editor.on('update', refreshHeadings)
-    editor.on('selectionUpdate', updateActiveFromEditor)
+watch(() => props.editor, (editor, _previous, onCleanup) => {
+  if (!editor) {
+    headings.value = []
+    activeIndex.value = -1
+    visible.value = false
+    overlayOpen.value = false
+    return
   }
-})
 
-watch(() => props.container, (container) => {
-  if (container) {
-    container.addEventListener('scroll', onEditorScroll, { passive: true })
-  }
-})
+  refreshHeadings()
+  editor.on('update', refreshHeadings)
+  editor.on('selectionUpdate', updateActiveFromEditor)
+
+  onCleanup(() => {
+    editor.off('update', refreshHeadings)
+    editor.off('selectionUpdate', updateActiveFromEditor)
+  })
+}, { immediate: true })
+
+watch(() => props.container, (container, _previous, onCleanup) => {
+  if (!container) return
+
+  container.addEventListener('scroll', onEditorScroll, { passive: true })
+  onCleanup(() => {
+    container.removeEventListener('scroll', onEditorScroll)
+  })
+}, { immediate: true })
 
 onMounted(() => {
   window.addEventListener('resize', checkVisibility)
-
-  if (props.editor) {
-    refreshHeadings()
-    props.editor.on('update', refreshHeadings)
-    props.editor.on('selectionUpdate', updateActiveFromEditor)
-  }
-  if (props.container) {
-    props.container.addEventListener('scroll', onEditorScroll, { passive: true })
-  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', checkVisibility)
-  if (props.editor) {
-    props.editor.off('update', refreshHeadings)
-    props.editor.off('selectionUpdate', updateActiveFromEditor)
-  }
-  if (props.container) {
-    props.container.removeEventListener('scroll', onEditorScroll)
-  }
+  cancelOverlayHide()
   if (scrollRaf) cancelAnimationFrame(scrollRaf)
 })
 </script>

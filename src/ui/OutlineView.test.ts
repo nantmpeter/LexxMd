@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref, nextTick } from 'vue'
 import type { Editor } from '@tiptap/core'
@@ -146,5 +146,23 @@ describe('OutlineView', () => {
 
     expect(editor.off).toHaveBeenCalledWith('update', expect.any(Function))
     expect(editor.off).toHaveBeenCalledWith('selectionUpdate', expect.any(Function))
+  })
+
+  it('cleans up previous editor listeners when editor changes', async () => {
+    Object.defineProperty(window, 'innerWidth', { value: 1400, writable: true })
+
+    const previousEditor = createMockEditor([])
+    const nextEditor = createMockEditor([])
+
+    const wrapper = mount(OutlineView, {
+      props: { editor: previousEditor, container: document.createElement('div') },
+    })
+
+    await wrapper.setProps({ editor: nextEditor })
+
+    expect(previousEditor.off).toHaveBeenCalledWith('update', expect.any(Function))
+    expect(previousEditor.off).toHaveBeenCalledWith('selectionUpdate', expect.any(Function))
+    expect(nextEditor.on).toHaveBeenCalledWith('update', expect.any(Function))
+    expect(nextEditor.on).toHaveBeenCalledWith('selectionUpdate', expect.any(Function))
   })
 })

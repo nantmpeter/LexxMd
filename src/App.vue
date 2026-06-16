@@ -8,6 +8,7 @@
       :replace="replaceQuery"
       :count-label="searchCountLabel"
       :disabled="searchTotal === 0"
+      :not-found="searchQuery.length > 0 && searchTotal === 0"
       @update:query="searchQuery = $event"
       @update:replace="replaceQuery = $event"
       @next="goToNextSearchMatch"
@@ -44,7 +45,7 @@
         v-show="sourceMode"
         class="source-pane"
       />
-      <OutlineView v-show="!sourceMode" :editor="activeEditor" :container="editorContainerEl" />
+      <OutlineView v-if="!sourceMode" :editor="activeEditor" :container="editorContainerEl" />
     </main>
     <Sidebar
       :mode="effectiveSidebarMode"
@@ -77,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, markRaw } from 'vue'
 import { createEditor } from './editor/index'
 import { createSourceEditor } from './editor/source-editor'
 import { getSearchState, replaceActiveSearchMatch, replaceAllSearchMatches, updateSearch } from './editor/extensions/search-match'
@@ -159,8 +160,8 @@ const activeFilename = computed(() => activeFile.value?.filename ?? 'Untitled.md
 const activeDirty = computed(() => activeFile.value?.dirty ?? false)
 const searchCountLabel = computed(() => {
   if (!searchQuery.value) return ''
-  if (searchTotal.value === 0) return '0/0'
-  return `${searchActiveIndex.value + 1}/${searchTotal.value}`
+  if (searchTotal.value === 0) return 'No results'
+  return `${searchActiveIndex.value + 1} of ${searchTotal.value}`
 })
 
 // Sync filename to native window title
@@ -182,6 +183,22 @@ function syncSearchState() {
   const state = getSearchState(activeEditor.value)
   searchActiveIndex.value = state.activeIndex
   searchTotal.value = state.matches.length
+}
+
+function clearSearchForAllEditors() {
+  for (const slot of openFiles.value) {
+    updateSearch(slot.editor, { query: '' })
+  }
+}
+
+function getSelectedSearchText() {
+  const editor = activeEditor.value
+  if (!editor) return ''
+
+  const { from, to, empty } = editor.view.state.selection
+  if (empty) return ''
+
+  return editor.view.state.doc.textBetween(from, to, ' ')
 }
 
 function scrollToActiveSearchMatch() {
@@ -216,8 +233,13 @@ function focusSearchInput() {
 
 function openSearch(initialQuery = '') {
   if (sourceMode.value) return
-  searchQuery.value = initialQuery
-  replaceQuery.value = ''
+
+  const selectedText = initialQuery || getSelectedSearchText()
+  if (selectedText || !searchOpen.value) {
+    searchQuery.value = selectedText
+  }
+  if (!searchOpen.value) replaceQuery.value = ''
+
   searchOpen.value = true
   updateSearch(activeEditor.value, { query: searchQuery.value })
   syncSearchState()
@@ -225,7 +247,7 @@ function openSearch(initialQuery = '') {
 }
 
 function closeSearch() {
-  updateSearch(activeEditor.value, { query: '' })
+  clearSearchForAllEditors()
   searchOpen.value = false
   searchQuery.value = ''
   syncSearchState()
@@ -254,6 +276,11 @@ function goToPreviousSearchMatch() {
 }
 
 function replaceCurrentMatch() {
+  if (searchTotal.value === 0) {
+    focusSearchInput()
+    return
+  }
+
   replaceActiveSearchMatch(activeEditor.value, replaceQuery.value)
   updateSearch(activeEditor.value, { query: searchQuery.value })
   syncSearchState()
@@ -263,6 +290,11 @@ function replaceCurrentMatch() {
 }
 
 function replaceAllMatches() {
+  if (searchTotal.value === 0) {
+    focusSearchInput()
+    return
+  }
+
   replaceAllSearchMatches(activeEditor.value, replaceQuery.value)
   updateSearch(activeEditor.value, { query: searchQuery.value })
   syncSearchState()
@@ -526,10 +558,13 @@ function setSlotElement(id: string, el: HTMLElement | null) {
   const slot = openFiles.value.find(f => f.id === id)
   if (slot && !slot.element) {
     slot.element = el
-    slot.editor = createEditor(el, slot.lastSavedContent, () => slot.filePath)
+    slot.editor = markRaw(createEditor(el, slot.lastSavedContent, () => slot.filePath))
     slot.editor.on('update', () => {
       slot.dirty = true
       scheduleAutoSave(slot)
+      if (searchOpen.value && slot.id === activeFileId.value) {
+        syncSearchState()
+      }
     })
   }
 }

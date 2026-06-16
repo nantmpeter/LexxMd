@@ -96,13 +96,16 @@ function applySearchMeta(
 
 export function getSearchState(editor: Editor | null): SearchState {
   if (!editor) return emptySearchState
-  return searchMatchPluginKey.getState(editor.state) ?? emptySearchState
+  // Use editor.view.state (not editor.state): the latter may be a stale
+  // reference in Tiptap, leading to mismatched transactions when dispatched.
+  return searchMatchPluginKey.getState(editor.view.state) ?? emptySearchState
 }
 
 export function updateSearch(editor: Editor | null, meta: SearchMeta): SearchState {
   if (!editor) return emptySearchState
 
-  editor.view.dispatch(editor.state.tr.setMeta(searchMatchPluginKey, meta))
+  const { view } = editor
+  view.dispatch(view.state.tr.setMeta(searchMatchPluginKey, meta))
   return getSearchState(editor)
 }
 
@@ -113,8 +116,9 @@ export function replaceActiveSearchMatch(editor: Editor | null, replacement: str
   const match = state.matches[state.activeIndex]
   if (!match) return state
 
-  const tr = editor.state.tr.insertText(replacement, match.from, match.to)
-  editor.view.dispatch(tr)
+  const { view } = editor
+  const tr = view.state.tr.insertText(replacement, match.from, match.to)
+  view.dispatch(tr)
   return getSearchState(editor)
 }
 
@@ -124,12 +128,13 @@ export function replaceAllSearchMatches(editor: Editor | null, replacement: stri
   const state = getSearchState(editor)
   if (state.matches.length === 0) return state
 
-  let tr = editor.state.tr
+  const { view } = editor
+  let tr = view.state.tr
   for (const match of [...state.matches].reverse()) {
     tr = tr.insertText(replacement, match.from, match.to)
   }
 
-  editor.view.dispatch(tr)
+  view.dispatch(tr)
   return getSearchState(editor)
 }
 

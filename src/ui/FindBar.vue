@@ -1,11 +1,14 @@
 <template>
-  <form class="find-bar" @submit.prevent="$emit('next')">
+  <form class="find-bar" :class="{ 'has-no-results': notFound }" @submit.prevent="$emit('next')">
     <input
       ref="inputEl"
       :value="query"
       class="find-input"
+      :class="{ 'is-not-found': notFound }"
       type="search"
       placeholder="Find"
+      aria-label="Find in document"
+      :aria-invalid="notFound ? 'true' : undefined"
       autocomplete="off"
       spellcheck="false"
       @input="$emit('update:query', ($event.target as HTMLInputElement).value)"
@@ -17,17 +20,18 @@
       class="find-input replace-input"
       type="text"
       placeholder="Replace"
+      aria-label="Replace with"
       autocomplete="off"
       spellcheck="false"
       @input="$emit('update:replace', ($event.target as HTMLInputElement).value)"
       @keydown.escape.prevent="$emit('close')"
     />
-    <span class="find-count">{{ countLabel }}</span>
+    <span class="find-count" :class="{ 'is-empty': !countLabel }" aria-live="polite">{{ countLabel }}</span>
     <button type="button" class="find-action-btn" :disabled="disabled" @click="$emit('replace')">Replace</button>
-    <button type="button" class="find-action-btn" :disabled="disabled" @click="$emit('replace-all')">All</button>
-    <button type="button" class="find-btn" title="Previous match" @click="$emit('previous')">↑</button>
-    <button type="button" class="find-btn" title="Next match" @click="$emit('next')">↓</button>
-    <button type="button" class="find-btn" title="Close find" @click="$emit('close')">×</button>
+    <button type="button" class="find-action-btn" :disabled="disabled" @click="$emit('replace-all')">Replace all</button>
+    <button type="button" class="find-btn" :disabled="disabled" title="Previous match" aria-label="Previous match" @click="$emit('previous')">↑</button>
+    <button type="button" class="find-btn" :disabled="disabled" title="Next match" aria-label="Next match" @click="$emit('next')">↓</button>
+    <button type="button" class="find-btn" title="Close find" aria-label="Close find" @click="$emit('close')">×</button>
   </form>
 </template>
 
@@ -39,6 +43,7 @@ defineProps<{
   replace: string
   countLabel: string
   disabled: boolean
+  notFound: boolean
 }>()
 
 defineEmits<{
@@ -94,6 +99,10 @@ defineExpose({
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+.find-bar.has-no-results {
+  border-color: var(--error-border);
+}
+
 .find-input {
   width: 220px;
   height: 28px;
@@ -114,11 +123,22 @@ defineExpose({
   border-color: var(--accent);
 }
 
+.find-input.is-not-found,
+.find-input.is-not-found:focus {
+  border-color: var(--error-border);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--error-border) 24%, transparent);
+}
+
 .find-count {
-  min-width: 44px;
+  min-width: 76px;
   text-align: center;
   color: var(--text-secondary);
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.find-count:not(.is-empty) {
+  color: var(--text);
 }
 
 .find-btn {
@@ -136,6 +156,17 @@ defineExpose({
 .find-btn:hover {
   background: var(--bg-secondary);
   color: var(--text);
+}
+
+.find-btn:disabled {
+  color: var(--text-secondary);
+  cursor: default;
+  opacity: 0.45;
+}
+
+.find-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
 }
 
 .find-action-btn {

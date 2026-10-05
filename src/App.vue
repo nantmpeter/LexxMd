@@ -86,7 +86,7 @@ import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
 import FindBar from './ui/FindBar.vue'
 import QuickOpen from './ui/QuickOpen.vue'
-import { listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, drainPendingFiles } from './tauri/commands'
+import { fileRead, updateWindowTitle, openFileInNewWindow, drainPendingFiles } from './tauri/commands'
 import type { FileSlot } from './types'
 import { useQuickOpen } from './composables/useQuickOpen'
 import { useAutoSave } from './composables/useAutoSave'
@@ -95,6 +95,8 @@ import { useFileSlots } from './composables/useFileSlots'
 import { useShortcuts } from './composables/useShortcuts'
 import { useFindReplace } from './composables/useFindReplace'
 import { useExport } from './composables/useExport'
+import { useWorkspace } from './composables/useWorkspace'
+import { useAppLifecycle } from './composables/useAppLifecycle'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -102,22 +104,21 @@ const editorContainerEl = ref<HTMLElement | null>(null)
 const openFiles = ref<FileSlot[]>([])
 const activeFileId = ref('')
 const toast = ref<{ message: string; type: 'error' | 'success' } | null>(null)
-const updateInfo = ref<{ version: string; downloadAndInstall: () => Promise<void> } | null>(null)
 // Bumped on every editor document change. The editor instances are markRaw'd,
 // so StatusBar needs this reactive counter to refresh word/char counts while
 // the user types.
 const editorVersion = ref(0)
 
-// ── Sidebar / workspace state ────────────────────────────────
-const workspaceRoot = ref<string | null>(null)
-
-const effectiveSidebarMode = computed(() => {
-  if (workspaceRoot.value) return 'tree'
-  if (openFiles.value.length > 1) return 'flat'
-  return 'hidden'
-})
-
 // ── Composable assembly ────────────────────────────────────
+
+const {
+  workspaceRoot,
+  effectiveSidebarMode,
+  handleOpenFolder,
+} = useWorkspace({
+  openFiles,
+  showToast,
+})
 
 let toastTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -271,41 +272,28 @@ const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
   isSourceMode: () => sourceMode.value,
 })
 
+const {
+  updateInfo,
+  checkForUpdate,
+  installUpdate,
+  checkCrashRecovery,
+  registerWindowCloseHandler,
+} = useAppLifecycle({
+  openFiles,
+  showToast,
+  performAutoSave,
+  clearAllAutoSaveTimers,
+  confirmDiscardChanges,
+  createFileSlot,
+  switchToFile,
+})
+
 // ── Toast ──────────────────────────────────────────────────
 
 function showToast(message: string, type: 'error' | 'success' = 'error') {
   if (toastTimeout) clearTimeout(toastTimeout)
   toast.value = { message, type }
   toastTimeout = setTimeout(() => { toast.value = null }, 4000)
-}
-
-// ── Auto-update ─────────────────────────────────────────────
-
-async function checkForUpdate() {
-  try {
-    const { check } = await import('@tauri-apps/plugin-updater')
-    const update = await check()
-    if (update) {
-      updateInfo.value = {
-        version: update.version,
-        downloadAndInstall: () => update.downloadAndInstall(),
-      }
-    }
-  } catch {
-    // Not in Tauri or updater not configured
-  }
-}
-
-async function installUpdate() {
-  if (!updateInfo.value) return
-  try {
-    showToast('Downloading update...', 'success')
-    await updateInfo.value.downloadAndInstall()
-    const { relaunch } = await import('@tauri-apps/plugin-process')
-    await relaunch()
-  } catch (e) {
-    showToast(`Update failed: ${e instanceof Error ? e.message : String(e)}`)
-  }
 }
 
 // ── Markdown content ───────────────────────────────────────
@@ -316,57 +304,6 @@ function getMarkdownContent(slot: FileSlot): string | null {
   if (typeof md === 'string') return md
   showToast('Failed to serialize document as Markdown')
   return null
-}
-
-// ── Folder / tree ──────────────────────────────────────────
-
-async function handleOpenFolder() {
-  try {
-    // If in flat mode (multiple files), open folder in a new window
-    if (effectiveSidebarMode.value === 'flat') {
-      const dirPath = await directoryOpenDialog()
-      if (dirPath) {
-        await openFolderInNewWindow(dirPath)
-      }
-      return
-    }
-
-    const dirPath = await directoryOpenDialog()
-    if (dirPath) {
-      workspaceRoot.value = dirPath
-      const parts = dirPath.split(/[/\\]/)
-      const folderName = parts[parts.length - 1] || 'Lexx'
-      updateWindowTitle(folderName).catch(() => {})
-    }
-  } catch (e) {
-    showToast(`Open folder failed: ${e instanceof Error ? e.message : String(e)}`)
-  }
-}
-
-// ── Crash recovery ─────────────────────────────────────────
-
-async function checkCrashRecovery() {
-  try {
-    const tempFiles = await listTempFiles()
-    if (tempFiles.length === 0) return
-
-    const { ask } = await import('@tauri-apps/plugin-dialog')
-    for (const tf of tempFiles) {
-      const recover = await ask(
-        `Found unsaved file "${tf.filename}" from a previous session. Recover it?`,
-        { title: 'Crash Recovery', kind: 'warning', okLabel: 'Recover', cancelLabel: 'Discard' }
-      )
-      if (recover) {
-        const content = await fileRead(tf.path)
-        const slot = createFileSlot(content, tf.filename)
-        slot.dirty = true
-        switchToFile(slot.id)
-      }
-      await deleteTempFile(tf.path)
-    }
-  } catch {
-    // Silent
-  }
 }
 
 // ── Lifecycle ──────────────────────────────────────────────
@@ -446,30 +383,7 @@ onMounted(async () => {
 
   // Window close
   try {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window')
-    const appWindow = getCurrentWindow()
-    appWindow.onCloseRequested(async (event) => {
-      const dirtySlots = openFiles.value.filter(f => f.dirty)
-      if (dirtySlots.length === 0) return
-      event.preventDefault()
-      clearAllAutoSaveTimers()
-      let allSaved = true
-      for (const slot of dirtySlots) {
-        const saved = await performAutoSave(slot)
-        if (!saved) allSaved = false
-      }
-      if (!allSaved) {
-        // Auto-save failed for at least one file: never destroy silently,
-        // ask the user to confirm discarding the unsaved changes.
-        const failed = dirtySlots.filter(f => f.dirty)
-        const names = failed.map(f => f.filename).join(', ')
-        const confirmed = await confirmDiscardChanges(
-          `Auto-save failed for "${names}". Close anyway and lose unsaved changes?`
-        )
-        if (!confirmed) return
-      }
-      await appWindow.destroy()
-    })
+    await registerWindowCloseHandler()
   } catch {
     // Not running in Tauri
   }

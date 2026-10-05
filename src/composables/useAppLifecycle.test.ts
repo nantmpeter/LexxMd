@@ -82,7 +82,6 @@ describe('checkExternalChanges auto-reload', () => {
     expect(mockedConvert).toHaveBeenCalledWith(editor, '/docs/a.md')
     expect(slot.lastSavedContent).toBe('external content')
     expect(slot.dirty).toBe(false)
-    expect(slot.externalChangeNotified).toBeUndefined()
   })
 
   it('toasts the reload with the file name', async () => {

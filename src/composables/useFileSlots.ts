@@ -184,7 +184,6 @@ export function useFileSlots(options: UseFileSlotsOptions) {
     slot.filename = parts[parts.length - 1] || 'Untitled.md'
     slot.dirty = false
     slot.lastSavedContent = content
-    slot.externalChangeNotified = false
     // The document now lives at its real path: drop the crash-recovery
     // temp copy so the next launch does not offer a stale duplicate.
     cleanupSlotTemp(slot)
@@ -218,7 +217,6 @@ export function useFileSlots(options: UseFileSlotsOptions) {
         await fileWrite(slot.filePath, content)
         slot.dirty = false
         slot.lastSavedContent = content
-        slot.externalChangeNotified = false
         showToast('Saved', 'success')
       } else {
         await writeSlotToChosenPath(slot, content, () => saveFileDialog(slot.filename))

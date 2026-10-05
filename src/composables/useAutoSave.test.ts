@@ -156,4 +156,28 @@ describe('useAutoSave prefs-driven scheduling', () => {
 
     expect(mockFileWrite).toHaveBeenCalledWith('/docs/test.md', 'edited content')
   })
+
+  it('clears already-armed timers the moment autosave is switched off', async () => {
+    const slot = createSlot()
+    const prefs = ref({ ...DEFAULT_PREFS, autosaveEnabled: true })
+    const { scheduleAutoSave } = useAutoSave({
+      activeFile: computed(() => slot),
+      getMarkdownContent: () => 'edited content',
+      syncSourceToSlot: () => {},
+      showToast: () => {},
+      prefs,
+    })
+
+    mockFileRead.mockResolvedValue('saved content')
+    mockFileWrite.mockResolvedValue(undefined)
+
+    // Arm a timer, then flip the pref off before it fires: the pending
+    // autosave must be dropped immediately, not silently run afterwards.
+    scheduleAutoSave(slot)
+    prefs.value = { ...prefs.value, autosaveEnabled: false }
+    await vi.advanceTimersByTimeAsync(DEFAULT_PREFS.autosaveDelayMs * 10)
+
+    expect(mockFileWrite).not.toHaveBeenCalled()
+    expect(slot.dirty).toBe(true)
+  })
 })

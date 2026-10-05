@@ -1,4 +1,4 @@
-import { onBeforeUnmount } from 'vue'
+import { onBeforeUnmount, watch } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
 import { fileRead, fileWrite, tempSave } from '../tauri/commands'
 import type { FileSlot } from '../types'
@@ -65,7 +65,6 @@ export function useAutoSave(options: UseAutoSaveOptions) {
         await fileWrite(slot.filePath, content)
         slot.dirty = false
         slot.lastSavedContent = content
-        slot.externalChangeNotified = false
       } else {
         slot.tempPath = await tempSave(slot.filename, content)
         slot.lastSavedContent = content
@@ -93,6 +92,17 @@ export function useAutoSave(options: UseAutoSaveOptions) {
     slot.dirty = true
     scheduleAutoSave(slot)
   }
+
+  // Toggling autosave off takes effect immediately: drop every pending timer
+  // so an armed autosave cannot fire after the user switched the pref off.
+  // performAutoSave itself stays ungated — the window-close flow calls it
+  // explicitly and must still be able to save.
+  watch(
+    () => prefs.value.autosaveEnabled,
+    (enabled) => {
+      if (!enabled) clearAllAutoSaveTimers()
+    }
+  )
 
   onBeforeUnmount(clearAllAutoSaveTimers)
 

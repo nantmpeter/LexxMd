@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
-import { exportPDF, planPdfPages, PAGE_HEIGHT_PX, CHUNK_SLACK_PX, type MeasuredBlock } from './pdf'
+import { exportPDF, planPdfPages, waitForImagesLoaded, PAGE_HEIGHT_PX, CHUNK_SLACK_PX, type MeasuredBlock } from './pdf'
 
 vi.mock('html2canvas', () => ({
   default: vi.fn(async (_el: HTMLElement, opts: { y: number; height: number }) => ({
@@ -78,6 +78,89 @@ describe('planPdfPages', () => {
     const chunks = planPdfPages([block(0, 20000, 'pre')])
     expect(chunks).toHaveLength(1)
     expect(chunks[0].kind).toBe('oversized')
+  })
+})
+
+describe('waitForImagesLoaded', () => {
+  /** Minimal img stand-in: `complete` gate + manual event firing. */
+  function stubImg(complete: boolean) {
+    const listeners: Record<string, Array<() => void>> = {}
+    return {
+      complete,
+      addEventListener(type: string, cb: () => void) {
+        listeners[type] = listeners[type] ?? []
+        listeners[type].push(cb)
+      },
+      fire(type: string) {
+        for (const cb of listeners[type] ?? []) cb()
+      },
+    }
+  }
+
+  function stubRoot(images: ReturnType<typeof stubImg>[]): ParentNode {
+    return { querySelectorAll: (selector: string) => (selector === 'img' ? images : []) } as unknown as ParentNode
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Drain the promise chain: listener resolve → Promise.all → race → await → then. */
+  async function flushMicrotasks(): Promise<void> {
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+  }
+
+  it('resolves immediately when every image is already complete', async () => {
+    const root = stubRoot([stubImg(true), stubImg(true)])
+    await expect(waitForImagesLoaded(root)).resolves.toBeUndefined()
+  })
+
+  it('resolves once every pending image fires load', async () => {
+    const a = stubImg(false)
+    const b = stubImg(false)
+    const root = stubRoot([a, b])
+    let resolved = false
+    void waitForImagesLoaded(root).then(() => {
+      resolved = true
+    })
+
+    await flushMicrotasks()
+    expect(resolved).toBe(false)
+    a.fire('load')
+    await flushMicrotasks()
+    expect(resolved).toBe(false) // b still pending
+    b.fire('load')
+    await flushMicrotasks()
+    expect(resolved).toBe(true)
+  })
+
+  it('treats a failed image like a loaded one (error settles the wait)', async () => {
+    const a = stubImg(false)
+    const root = stubRoot([a])
+    let resolved = false
+    void waitForImagesLoaded(root).then(() => {
+      resolved = true
+    })
+
+    await flushMicrotasks()
+    expect(resolved).toBe(false)
+    a.fire('error')
+    await flushMicrotasks()
+    expect(resolved).toBe(true)
+  })
+
+  it('gives up after the timeout instead of hanging the export on a dead URL', async () => {
+    vi.useFakeTimers()
+    const root = stubRoot([stubImg(false)])
+    let resolved = false
+    void waitForImagesLoaded(root, 5000).then(() => {
+      resolved = true
+    })
+
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(resolved).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(resolved).toBe(true)
   })
 })
 

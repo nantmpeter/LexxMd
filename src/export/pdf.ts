@@ -126,6 +126,35 @@ function renderRegion(el: HTMLElement, top: number, height: number): Promise<HTM
 }
 
 /**
+ * Resolve once every `<img>` inside `root` finished loading — successfully
+ * or not (a broken URL must not hang the export, hence the timeout race).
+ * `img.complete` short-circuits already-settled images, including failed
+ * ones. Exported for testing (happy-dom performs no real loads).
+ */
+export async function waitForImagesLoaded(root: ParentNode, timeoutMs = 5000): Promise<void> {
+  const images = Array.from(root.querySelectorAll('img'))
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const settled = Promise.all(
+      images.map(img =>
+        img.complete
+          ? Promise.resolve()
+          : new Promise<void>(resolve => {
+              img.addEventListener('load', () => resolve(), { once: true })
+              img.addEventListener('error', () => resolve(), { once: true })
+            })
+      )
+    )
+    const timeout = new Promise<void>(resolve => {
+      timer = setTimeout(resolve, timeoutMs)
+    })
+    await Promise.race([settled, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * Export the editor content as a PDF file.
  * Renders page-sized chunks and assembles them with jsPDF.
  */
@@ -145,6 +174,11 @@ export async function exportPDF(
   document.body.appendChild(clone)
 
   try {
+    // Measure only after every image settled: without intrinsic dimensions a
+    // pending <img> contributes zero height, so blocks containing images are
+    // measured too short and pagination slices the document at wrong lines.
+    await waitForImagesLoaded(clone)
+
     const pm = clone.querySelector('.ProseMirror') || clone
     const cloneTop = clone.getBoundingClientRect().top
 

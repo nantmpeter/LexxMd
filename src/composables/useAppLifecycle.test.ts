@@ -16,7 +16,17 @@ vi.mock('../editor/extensions/lexx-image', () => ({
   convertLocalImagesInEditor: vi.fn(),
 }))
 
-import { fileRead } from '../tauri/commands'
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  getCurrentWebviewWindow: vi.fn(),
+}))
+
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  ask: vi.fn(),
+}))
+
+import { fileRead, listTempFiles, deleteTempFile } from '../tauri/commands'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { ask } from '@tauri-apps/plugin-dialog'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
 import { FixContentParsing } from '../editor/extensions/fix-content-parsing'
 import { useAppLifecycle } from './useAppLifecycle'
@@ -24,6 +34,10 @@ import type { FileSlot } from '../types'
 
 const mockedFileRead = vi.mocked(fileRead)
 const mockedConvert = vi.mocked(convertLocalImagesInEditor)
+const mockedGetCurrentWebviewWindow = vi.mocked(getCurrentWebviewWindow)
+const mockedListTempFiles = vi.mocked(listTempFiles)
+const mockedDeleteTempFile = vi.mocked(deleteTempFile)
+const mockedAsk = vi.mocked(ask)
 
 function makeSlot(partial: Partial<FileSlot>): FileSlot {
   return {
@@ -409,5 +423,84 @@ describe('checkExternalChanges auto-reload', () => {
     await expect(checkExternalChanges()).resolves.toBeUndefined()
     expect(editor.commands.setContent).not.toHaveBeenCalled()
     expect(slot.lastSavedContent).toBe('old')
+  })
+})
+
+describe('checkCrashRecovery window scoping', () => {
+  beforeEach(() => {
+    mockedListTempFiles.mockReset()
+    mockedDeleteTempFile.mockReset()
+    mockedFileRead.mockReset()
+    mockedAsk.mockReset()
+    mockedGetCurrentWebviewWindow.mockReset()
+  })
+
+  function lifecycleWith(
+    openFiles: FileSlot[],
+    hooks: { createFileSlot?: () => FileSlot; switchToFile?: (id: string) => void } = {}
+  ) {
+    return useAppLifecycle({
+      openFiles: ref(openFiles),
+      workspaceRoot: ref(null),
+      showToast: vi.fn(),
+      performAutoSave: vi.fn(),
+      clearAllAutoSaveTimers: vi.fn(),
+      confirmDiscardChanges: vi.fn(),
+      createFileSlot: hooks.createFileSlot ?? (() => makeSlot({})),
+      switchToFile: hooks.switchToFile ?? vi.fn(),
+      isSlotInSourceMode: () => false,
+    })
+  }
+
+  it('prompts and recovers in the main window', async () => {
+    mockedGetCurrentWebviewWindow.mockReturnValue({ label: 'main' } as never)
+    mockedListTempFiles.mockResolvedValue([
+      { path: '/temp/lexx/Untitled.md', filename: 'Untitled.md', modified: 1 },
+    ])
+    mockedAsk.mockResolvedValue(true)
+    mockedFileRead.mockResolvedValue('recovered text')
+    const created = makeSlot({ id: 'recovered' })
+    const switchToFile = vi.fn()
+    const { checkCrashRecovery } = lifecycleWith([], {
+      createFileSlot: () => created,
+      switchToFile,
+    })
+
+    await checkCrashRecovery()
+
+    expect(mockedAsk).toHaveBeenCalledTimes(1)
+    expect(mockedFileRead).toHaveBeenCalledWith('/temp/lexx/Untitled.md')
+    expect(switchToFile).toHaveBeenCalledWith('recovered')
+    // The prompt is answered either way: an unanswered copy would resurface
+    // on every future launch.
+    expect(mockedDeleteTempFile).toHaveBeenCalledWith('/temp/lexx/Untitled.md')
+  })
+
+  it('never runs in a secondary window (listTempFiles is not even called)', async () => {
+    // Window 2 must not mistake window 1's live Untitled drafts for crash
+    // leftovers: its "Discard" would delete a recovery copy still in use.
+    mockedGetCurrentWebviewWindow.mockReturnValue({ label: 'ws-1' } as never)
+
+    const { checkCrashRecovery } = lifecycleWith([])
+
+    await checkCrashRecovery()
+
+    expect(mockedListTempFiles).not.toHaveBeenCalled()
+    expect(mockedAsk).not.toHaveBeenCalled()
+  })
+
+  it('deletes the temp copy when the user declines recovery (main window)', async () => {
+    mockedGetCurrentWebviewWindow.mockReturnValue({ label: 'main' } as never)
+    mockedListTempFiles.mockResolvedValue([
+      { path: '/temp/lexx/Draft.md', filename: 'Draft.md', modified: 2 },
+    ])
+    mockedAsk.mockResolvedValue(false)
+
+    const { checkCrashRecovery } = lifecycleWith([])
+
+    await checkCrashRecovery()
+
+    expect(mockedFileRead).not.toHaveBeenCalled()
+    expect(mockedDeleteTempFile).toHaveBeenCalledWith('/temp/lexx/Draft.md')
   })
 })

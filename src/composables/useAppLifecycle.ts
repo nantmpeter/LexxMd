@@ -68,6 +68,14 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
   // ── Crash recovery ─────────────────────────────────────────
 
   async function checkCrashRecovery() {
+    // Crash-recovery temp files are app-global, but only the main window may
+    // prompt for them: every window runs this on mount, so a secondary window
+    // would treat the live session's Untitled drafts as crash leftovers, and
+    // its "Discard" would delete the recovery copy another open window still
+    // belongs to. Secondary windows only exist while the app is already
+    // running, so their mounts can never be a crash recovery.
+    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    if (getCurrentWebviewWindow().label !== 'main') return
     try {
       const tempFiles = await listTempFiles()
       if (tempFiles.length === 0) return

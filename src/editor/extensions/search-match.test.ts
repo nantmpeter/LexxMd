@@ -36,6 +36,36 @@ describe('SearchMatchExtension', () => {
     expect(state.activeIndex).toBe(0)
   })
 
+  it('maps matches back onto the original text offsets', () => {
+    // Text node starts at pos 1 (after <p>): "Alpha BETA alpha" puts the
+    // case-insensitive hits at 0 and 11 inside the node.
+    editor = createSearchEditor('<p>Alpha BETA alpha</p>')
+
+    const state = updateSearch(editor, { query: 'ALPHA' })
+
+    expect(state.matches.map((m) => m.from)).toEqual([1, 12])
+    expect(state.matches.every((m) => m.to - m.from === 'ALPHA'.length)).toBe(true)
+  })
+
+  it('skips nodes whose lowercase form changes length instead of drifting', () => {
+    // "İ" (U+0130) lowers to "i" + U+0307 — two code units — so offsets into
+    // the lowered copy no longer map onto the original text. The scan skips
+    // the node rather than emitting misaligned from/to matches.
+    editor = createSearchEditor('<p>İstanbul</p>')
+
+    const state = updateSearch(editor, { query: 'istanbul' })
+
+    expect(state.matches).toHaveLength(0)
+  })
+
+  it('skips queries whose lowercase form changes length', () => {
+    editor = createSearchEditor('<p>Istanbul</p>')
+
+    const state = updateSearch(editor, { query: 'İ' })
+
+    expect(state.matches).toHaveLength(0)
+  })
+
   it('wraps active index when moving past the last match', () => {
     editor = createSearchEditor('<p>one two one</p>')
 

@@ -36,15 +36,30 @@ function clampActiveIndex(index: number, matchCount: number): number {
 }
 
 function findMatches(doc: ProseMirrorNode, query: string): SearchMatch[] {
-  const needle = query.toLocaleLowerCase()
+  // Deliberately NOT toLocaleLowerCase(): locale-aware lowering can change
+  // the string length for some characters (e.g. "İ" U+0130 → "i" + U+0307),
+  // which shifts every indexOf offset away from the original text and
+  // misplaces the from/to decorations. Plain toLowerCase() keeps the length
+  // stable for all but a handful of exotic characters.
+  const needle = query.toLowerCase()
   if (!needle) return []
+  // Defensive: those exotic characters exist even without a locale. If the
+  // lowered query has a different length than the query, offsets can no
+  // longer be mapped back onto the original text — skip the search rather
+  // than emit drifted matches.
+  if (needle.length !== query.length) return []
 
   const matches: SearchMatch[] = []
 
   doc.descendants((node, pos) => {
     if (!node.isText || !node.text) return
 
-    const haystack = node.text.toLocaleLowerCase()
+    const haystack = node.text.toLowerCase()
+    // Same defensive guard as the query: a node whose lowered form changed
+    // length (e.g. it contains "İ") would shift every offset after that
+    // character, so the whole node's matches are skipped.
+    if (haystack.length !== node.text.length) return
+
     let offset = haystack.indexOf(needle)
 
     while (offset !== -1) {

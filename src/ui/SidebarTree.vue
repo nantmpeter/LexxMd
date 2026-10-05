@@ -13,7 +13,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { listDirectory } from '../tauri/commands'
 import type { TreeNode } from '../types'
 import TreeNodeComp from './SidebarTreeNode.vue'
@@ -65,6 +65,11 @@ async function onToggle(node: TreeNode) {
 }
 
 onMounted(loadRoot)
+
+// The sidebar only v-if-remounts this component when the sidebar *mode*
+// changes; opening a different folder while already in tree mode keeps the
+// component alive with a stale rootPath. Reload on every rootPath change.
+watch(() => props.rootPath, loadRoot)
 </script>
 
 <style scoped>

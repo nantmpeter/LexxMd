@@ -81,6 +81,8 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, markRaw } from 'vue'
 import { createEditor } from './editor/index'
 import { createSourceEditor } from './editor/source-editor'
+import { convertLocalImagesInEditor } from './editor/extensions/lexx-image'
+import type { Transaction } from '@tiptap/pm/state'
 import { getSearchState, replaceActiveSearchMatch, replaceAllSearchMatches, updateSearch } from './editor/extensions/search-match'
 import StatusBar from './ui/StatusBar.vue'
 import OutlineView from './ui/OutlineView.vue'
@@ -500,6 +502,7 @@ async function performAutoSave(slot: FileSlot) {
   if (sourceMode.value && sourceEditor && activeFile.value?.id === slot.id) {
     const md = sourceEditor.getContent()
     slot.editor.commands.setContent(md)
+    if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
   }
 
   const content = getMarkdownContent(slot)
@@ -559,7 +562,9 @@ function setSlotElement(id: string, el: HTMLElement | null) {
   if (slot && !slot.element) {
     slot.element = el
     slot.editor = markRaw(createEditor(el, slot.lastSavedContent, () => slot.filePath))
-    slot.editor.on('update', () => {
+    if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
+    slot.editor.on('update', ({ transaction }: { transaction: Transaction }) => {
+      if (transaction.getMeta('convertLocalImages')) return
       slot.dirty = true
       scheduleAutoSave(slot)
       if (searchOpen.value && slot.id === activeFileId.value) {
@@ -574,6 +579,7 @@ function switchToFile(id: string) {
   if (sourceMode.value && sourceEditor && activeFile.value?.editor) {
     const md = sourceEditor.getContent()
     activeFile.value.editor.commands.setContent(md)
+    if (activeFile.value.filePath) convertLocalImagesInEditor(activeFile.value.editor, activeFile.value.filePath)
   }
 
   activeFileId.value = id
@@ -704,6 +710,7 @@ function toggleSourceMode() {
         if (md) {
           try {
             slot.editor.commands.setContent(md, false)
+            if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
           } catch (e) {
             console.warn('setContent failed', e)
           }

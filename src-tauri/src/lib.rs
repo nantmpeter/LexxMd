@@ -99,6 +99,10 @@ pub fn run() {
                     &PredefinedMenuItem::hide(app, None)?,
                     &PredefinedMenuItem::hide_others(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
+                    // macOS convention: Preferences... lives in the app menu,
+                    // above Quit, with the Cmd+, accelerator.
+                    &MenuItem::with_id(app, "prefs", "Preferences...", true, Some("CmdOrCtrl+,"))?,
+                    &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::quit(app, None)?,
                 ])?;
 

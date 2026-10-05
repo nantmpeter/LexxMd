@@ -1,9 +1,10 @@
 import { onBeforeUnmount } from 'vue'
-import type { ComputedRef } from 'vue'
+import type { ComputedRef, Ref } from 'vue'
 import { fileRead, fileWrite, tempSave } from '../tauri/commands'
 import type { FileSlot } from '../types'
 import type { ToastFn } from './useQuickOpen'
 import type { SyncSourceToSlot } from './useSourceMode'
+import type { Prefs } from './usePrefs'
 
 interface UseAutoSaveOptions {
   /** The currently visible slot; CM→PM sync only applies to it. */
@@ -15,12 +16,12 @@ interface UseAutoSaveOptions {
    */
   syncSourceToSlot: SyncSourceToSlot
   showToast: ToastFn
+  /** Live preferences: autosaveEnabled gates scheduling, autosaveDelayMs the timer. */
+  prefs: Ref<Prefs>
 }
 
-const AUTO_SAVE_DELAY = 3000
-
 export function useAutoSave(options: UseAutoSaveOptions) {
-  const { activeFile, getMarkdownContent, syncSourceToSlot, showToast } = options
+  const { activeFile, getMarkdownContent, syncSourceToSlot, showToast, prefs } = options
 
   const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -78,7 +79,11 @@ export function useAutoSave(options: UseAutoSaveOptions) {
 
   function scheduleAutoSave(slot: FileSlot) {
     clearAutoSaveTimer(slot)
-    const timer = setTimeout(() => performAutoSave(slot), AUTO_SAVE_DELAY)
+    // Autosave disabled: dirty tracking still happens (this is the only
+    // scheduler entry point), but no timer is armed — content is saved only
+    // through explicit Save / window-close flows.
+    if (!prefs.value.autosaveEnabled) return
+    const timer = setTimeout(() => performAutoSave(slot), prefs.value.autosaveDelayMs)
     autoSaveTimers.set(slot.id, timer)
   }
 

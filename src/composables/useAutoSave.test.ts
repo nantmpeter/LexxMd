@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { computed } from 'vue'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { computed, ref } from 'vue'
 
 vi.mock('../tauri/commands', () => ({
   fileRead: vi.fn(),
@@ -9,6 +9,7 @@ vi.mock('../tauri/commands', () => ({
 
 import { fileRead, fileWrite, tempSave } from '../tauri/commands'
 import { useAutoSave } from './useAutoSave'
+import { DEFAULT_PREFS } from './usePrefs'
 import type { ToastFn } from './useQuickOpen'
 import type { FileSlot } from '../types'
 
@@ -30,12 +31,13 @@ function createSlot(overrides: Partial<FileSlot> = {}): FileSlot {
   }
 }
 
-function createComposable(slot: FileSlot, showToast: ToastFn = () => {}) {
+function createComposable(slot: FileSlot, showToast: ToastFn = () => {}, prefsOverride = {}) {
   return useAutoSave({
     activeFile: computed(() => slot),
     getMarkdownContent: () => 'edited content',
     syncSourceToSlot: () => {},
     showToast,
+    prefs: ref({ ...DEFAULT_PREFS, ...prefsOverride }),
   })
 }
 
@@ -91,5 +93,67 @@ describe('useAutoSave external-change guard', () => {
     expect(mockFileRead).not.toHaveBeenCalled()
     expect(mockTempSave).toHaveBeenCalledWith('Untitled 1.md', 'edited content')
     expect(slot.lastSavedContent).toBe('edited content')
+  })
+})
+
+describe('useAutoSave prefs-driven scheduling', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('does not arm a timer when autosaveEnabled is false', async () => {
+    const slot = createSlot()
+    const { scheduleAutoSave } = createComposable(slot, () => {}, { autosaveEnabled: false })
+
+    scheduleAutoSave(slot)
+    await vi.advanceTimersByTimeAsync(60000)
+
+    expect(mockFileWrite).not.toHaveBeenCalled()
+    // Dirty state is preserved: only the timer is suppressed.
+    expect(slot.dirty).toBe(true)
+  })
+
+  it('schedules with autosaveDelayMs instead of the old hardcoded delay', async () => {
+    const slot = createSlot()
+    const { scheduleAutoSave } = createComposable(slot, () => {}, { autosaveDelayMs: 10000 })
+
+    scheduleAutoSave(slot)
+    mockFileRead.mockResolvedValue('saved content')
+    mockFileWrite.mockResolvedValue(undefined)
+
+    await vi.advanceTimersByTimeAsync(9999)
+    expect(mockFileWrite).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(mockFileWrite).toHaveBeenCalledWith('/docs/test.md', 'edited content')
+  })
+
+  it('reacts to a live prefs flip: re-enabling autosave arms the next timer', async () => {
+    const slot = createSlot()
+    const prefs = ref({ ...DEFAULT_PREFS, autosaveEnabled: false })
+    const { scheduleAutoSave } = useAutoSave({
+      activeFile: computed(() => slot),
+      getMarkdownContent: () => 'edited content',
+      syncSourceToSlot: () => {},
+      showToast: () => {},
+      prefs,
+    })
+
+    scheduleAutoSave(slot)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(mockFileWrite).not.toHaveBeenCalled()
+
+    prefs.value = { ...prefs.value, autosaveEnabled: true }
+    scheduleAutoSave(slot)
+    mockFileRead.mockResolvedValue('saved content')
+    mockFileWrite.mockResolvedValue(undefined)
+    await vi.advanceTimersByTimeAsync(DEFAULT_PREFS.autosaveDelayMs)
+
+    expect(mockFileWrite).toHaveBeenCalledWith('/docs/test.md', 'edited content')
   })
 })

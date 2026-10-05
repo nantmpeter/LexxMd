@@ -35,8 +35,49 @@
   --hljs-built_in: #005cc5;
 }
 
+/* Manual theme override via <html data-theme="system|light|dark"> (set by
+   usePrefs). "dark" forces the dark palette; "light" opts out of the OS dark
+   block below; "system" matches neither selector and falls through to the
+   @media (prefers-color-scheme) block at the end of this section. The dark
+   palette is duplicated because CSS cannot mix a media query and an
+   attribute selector in one rule. */
+:root[data-theme="dark"] {
+  --bg: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-code: #1e1e1e;
+  --text: #c9d1d9;
+  --text-secondary: #8b949e;
+  --text-code: #d4d4d4;
+  --border: #30363d;
+  --border-dark: #484f58;
+  --accent: #58a6ff;
+  --link: #58a6ff;
+  --code-bg: #161b22;
+  --code-color: #a5d6ff;
+  --marker: #484f58;
+  --error-bg: #2d1117;
+  --error-border: #6e3630;
+  --error-text: #f85149;
+  --error-heading: #f85149;
+  --success-bg: #0d2818;
+  --success-border: #238636;
+  --success-text: #7ee787;
+  --cell-selected: rgba(88, 166, 255, 0.1);
+  --placeholder: #484f58;
+  /* Syntax highlighting */
+  --hljs-comment: #8b949e;
+  --hljs-keyword: #ff7b72;
+  --hljs-string: #a5d6ff;
+  --hljs-number: #79c0ff;
+  --hljs-title: #d2a8ff;
+  --hljs-type: #ffa657;
+  --hljs-built_in: #79c0ff;
+}
+
+/* OS preference fallback: applies whenever no explicit "light" override is
+   set (data-theme is "system", or missing entirely on first paint). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0d1117;
     --bg-secondary: #161b22;
     --bg-code: #1e1e1e;

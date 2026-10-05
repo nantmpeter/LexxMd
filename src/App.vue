@@ -28,12 +28,22 @@
       @select="openQuickOpenFile"
       @close="closeQuickOpen"
     />
+    <SettingsModal
+      v-if="settingsOpen"
+      :prefs="prefs"
+      @change="savePrefs"
+      @close="settingsOpen = false"
+    />
     <button
       v-if="sourceMode"
       class="source-exit-btn"
       @click="toggleSourceMode"
     >Exit Source Mode</button>
-    <main class="editor-container" ref="editorContainerEl">
+    <main
+      class="editor-container"
+      ref="editorContainerEl"
+      :style="{ '--editor-width': prefs.editorWidth + 'px' }"
+    >
       <div
         v-for="slot in openFiles"
         :key="slot.id"
@@ -91,6 +101,7 @@ import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
 import FindBar from './ui/FindBar.vue'
 import QuickOpen from './ui/QuickOpen.vue'
+import SettingsModal from './ui/SettingsModal.vue'
 import type { FileSlot } from './types'
 import { useQuickOpen } from './composables/useQuickOpen'
 import { useAutoSave } from './composables/useAutoSave'
@@ -104,6 +115,7 @@ import { useAppLifecycle } from './composables/useAppLifecycle'
 import { useStartupFiles } from './composables/useStartupFiles'
 import { useSession } from './composables/useSession'
 import { useRecentFiles } from './composables/useRecentFiles'
+import { usePrefs } from './composables/usePrefs'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -132,6 +144,17 @@ const activeDirty = computed(() => activeFile.value?.dirty ?? false)
 
 // ── Composable assembly ────────────────────────────────────
 
+// Prefs first: the immediate theme watch inside usePrefs applies
+// <html data-theme> during setup, i.e. before first paint, and loadPrefs()
+// (fired right after) upgrades the attribute to the stored value as soon as
+// prefs.json is read.
+const { prefs, loadPrefs, savePrefs } = usePrefs()
+const settingsOpen = ref(false)
+function openPreferences() {
+  settingsOpen.value = true
+}
+void loadPrefs()
+
 // Each useXxx factory takes explicit dependencies and returns the same names
 // the template and handlers have always used. Two pairs of composables are
 // mutually dependent (autosave ↔ source-mode sync, source mode ↔ find bar);
@@ -149,6 +172,7 @@ const {
   scheduleAutoSave, scheduleAutoSaveForActiveFile,
 } = useAutoSave({
   activeFile, getMarkdownContent, showToast,
+  prefs,
   // Bound after useSourceMode() below; the call itself is deferred until an
   // autosave actually runs, so the forward reference is safe.
   syncSourceToSlot: (slot, opts) => sourceModeApi.syncSourceToSlot(slot, opts),
@@ -208,6 +232,7 @@ const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
   handleClose, toggleSourceMode,
   handleExportPDF, handleExportDOCX, handleExportJPEG,
   handleCycleNext, handleCyclePrev,
+  openPreferences,
   isSourceMode: () => sourceMode.value,
 })
 

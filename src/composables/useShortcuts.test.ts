@@ -19,6 +19,7 @@ function createActions() {
     handleExportJPEG: vi.fn(),
     handleCycleNext: vi.fn(),
     handleCyclePrev: vi.fn(),
+    openPreferences: vi.fn(),
     isSourceMode: vi.fn(() => false),
   }
 }
@@ -135,5 +136,24 @@ describe('useShortcuts IME composition guard', () => {
     exposed.onMenuBarEvent?.('sa')
 
     expect(actions.handleSaveAs).toHaveBeenCalledTimes(1)
+  })
+
+  it('the prefs menu event and Cmd+, both open preferences', () => {
+    const actions = createActions()
+    const exposed: { onMenuBarEvent?: (id: string) => void } = {}
+    const Host = defineComponent({
+      setup() {
+        const api = useShortcuts(actions)
+        exposed.onMenuBarEvent = api.onMenuBarEvent
+        return () => h('div')
+      },
+    })
+    wrapper = mount(Host)
+
+    exposed.onMenuBarEvent?.('prefs')
+    expect(actions.openPreferences).toHaveBeenCalledTimes(1)
+
+    fireKeydown({ key: ',', metaKey: true })
+    expect(actions.openPreferences).toHaveBeenCalledTimes(2)
   })
 })

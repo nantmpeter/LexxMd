@@ -57,6 +57,8 @@ const menus: MenuDef[] = [
       '---',
       { label: 'Save', action: 'fs', accel: 'Ctrl+S' },
       '---',
+      { label: 'Preferences...', action: 'prefs', accel: 'Ctrl+,' },
+      '---',
       { label: 'Export as PDF...', action: 'ep' },
       { label: 'Export as DOCX...', action: 'ed' },
       { label: 'Export as JPEG...', action: 'ej' },

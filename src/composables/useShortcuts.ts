@@ -16,6 +16,7 @@ interface ShortcutActions {
   handleExportJPEG: () => void
   handleCycleNext: () => void
   handleCyclePrev: () => void
+  openPreferences: () => void
   isSourceMode: () => boolean
 }
 
@@ -38,6 +39,7 @@ export function useShortcuts(actions: ShortcutActions) {
     ep: actions.handleExportPDF,
     ed: actions.handleExportDOCX,
     ej: actions.handleExportJPEG,
+    prefs: actions.openPreferences,
   }
 
   function onMenuBarEvent(id: string) {
@@ -80,6 +82,7 @@ export function useShortcuts(actions: ShortcutActions) {
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); actions.handleOpenFolder() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') { e.preventDefault(); actions.handleNew() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') { e.preventDefault(); actions.handleClose() }
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === ',') { e.preventDefault(); actions.openPreferences() }
     if (e.key === 'Escape' && actions.isSourceMode()) { e.preventDefault(); actions.toggleSourceMode() }
 
     // ── Tab cycling ──────────────────────────────────────────

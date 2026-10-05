@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Ref, ComputedRef } from 'vue'
 import { updateWindowTitle, directoryOpenDialog, openFolderInNewWindow } from '../tauri/commands'
 import type { FileSlot, SidebarMode } from '../types'
@@ -6,11 +6,13 @@ import type { ToastFn } from './useQuickOpen'
 
 interface UseWorkspaceOptions {
   openFiles: Ref<FileSlot[]>
+  /** Filename of the visible slot, for the native window title. */
+  activeFilename: ComputedRef<string>
   showToast: ToastFn
 }
 
 export function useWorkspace(options: UseWorkspaceOptions) {
-  const { openFiles, showToast } = options
+  const { openFiles, activeFilename, showToast } = options
 
   const workspaceRoot = ref<string | null>(null)
 
@@ -42,6 +44,11 @@ export function useWorkspace(options: UseWorkspaceOptions) {
       showToast(`Open folder failed: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
+
+  // Sync filename to native window title
+  watch(activeFilename, (fn) => {
+    updateWindowTitle(fn).catch(() => { /* not in Tauri */ })
+  }, { immediate: true })
 
   return {
     workspaceRoot,

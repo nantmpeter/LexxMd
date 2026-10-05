@@ -1,4 +1,4 @@
-import { markRaw, nextTick } from 'vue'
+import { markRaw, nextTick, onBeforeUnmount } from 'vue'
 import type { Ref, ComputedRef } from 'vue'
 import { createEditor } from '../editor/index'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
@@ -283,6 +283,12 @@ export function useFileSlots(options: UseFileSlotsOptions) {
   async function confirmUnsaved(fn: string): Promise<boolean> {
     return confirmDiscardChanges(`"${fn}" has unsaved changes. Close anyway?`)
   }
+
+  onBeforeUnmount(() => {
+    for (const slot of openFiles.value) {
+      slot.editor?.destroy()
+    }
+  })
 
   return {
     createFileSlot,

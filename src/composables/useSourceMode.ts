@@ -1,4 +1,4 @@
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onBeforeUnmount } from 'vue'
 import type { ComputedRef } from 'vue'
 import { createSourceEditor } from '../editor/source-editor'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
@@ -107,6 +107,8 @@ export function useSourceMode(options: UseSourceModeOptions) {
     if (sourceEditor) sourceEditor.destroy()
     sourceEditor = null
   }
+
+  onBeforeUnmount(destroySourceEditor)
 
   return {
     sourceMode,

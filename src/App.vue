@@ -86,7 +86,7 @@ import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
 import FindBar from './ui/FindBar.vue'
 import QuickOpen from './ui/QuickOpen.vue'
-import { fileRead, updateWindowTitle, openFileInNewWindow, drainPendingFiles } from './tauri/commands'
+import { openFileInNewWindow } from './tauri/commands'
 import type { FileSlot } from './types'
 import { useQuickOpen } from './composables/useQuickOpen'
 import { useAutoSave } from './composables/useAutoSave'
@@ -97,6 +97,7 @@ import { useFindReplace } from './composables/useFindReplace'
 import { useExport } from './composables/useExport'
 import { useWorkspace } from './composables/useWorkspace'
 import { useAppLifecycle } from './composables/useAppLifecycle'
+import { useStartupFiles } from './composables/useStartupFiles'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -108,19 +109,6 @@ const toast = ref<{ message: string; type: 'error' | 'success' } | null>(null)
 // so StatusBar needs this reactive counter to refresh word/char counts while
 // the user types.
 const editorVersion = ref(0)
-
-// ── Composable assembly ────────────────────────────────────
-
-const {
-  workspaceRoot,
-  effectiveSidebarMode,
-  handleOpenFolder,
-} = useWorkspace({
-  openFiles,
-  showToast,
-})
-
-let toastTimeout: ReturnType<typeof setTimeout> | null = null
 
 // ── Computed accessors ─────────────────────────────────────
 
@@ -135,10 +123,20 @@ const activeFile = computed(() =>
 const activeEditor = computed(() => activeFile.value?.editor ?? null)
 const activeFilename = computed(() => activeFile.value?.filename ?? 'Untitled.md')
 const activeDirty = computed(() => activeFile.value?.dirty ?? false)
-// Sync filename to native window title
-watch(activeFilename, (fn) => {
-  updateWindowTitle(fn).catch(() => { /* not in Tauri */ })
-}, { immediate: true })
+
+// ── Composable assembly ────────────────────────────────────
+
+const {
+  workspaceRoot,
+  effectiveSidebarMode,
+  handleOpenFolder,
+} = useWorkspace({
+  openFiles,
+  activeFilename,
+  showToast,
+})
+
+let toastTimeout: ReturnType<typeof setTimeout> | null = null
 
 const {
   clearAutoSaveTimer,
@@ -288,6 +286,14 @@ const {
   switchToFile,
 })
 
+const { openStartupFiles } = useStartupFiles({
+  workspaceRoot,
+  openFiles,
+  createFileSlot,
+  switchToFile,
+  openFileFromTree,
+})
+
 // ── Toast ──────────────────────────────────────────────────
 
 function showToast(message: string, type: 'error' | 'success' = 'error') {
@@ -309,57 +315,7 @@ function getMarkdownContent(slot: FileSlot): string | null {
 // ── Lifecycle ──────────────────────────────────────────────
 
 onMounted(async () => {
-  // Track whether any file was opened from startup params
-  let openedFile = false
-
-  // Check for workspace query param (new window from folder open)
-  try {
-    const params = new URLSearchParams(window.location.search)
-    const ws = params.get('workspace')
-    if (ws) {
-      workspaceRoot.value = ws
-      const parts = ws.split(/[/\\]/)
-      const folderName = parts[parts.length - 1] || 'Lexx'
-      updateWindowTitle(folderName).catch(() => {})
-    }
-    // Check for file query param (new window from file open)
-    const fp = params.get('file')
-    if (fp) {
-      openedFile = true
-      try {
-        const content = await fileRead(fp)
-        const parts = fp.split(/[/\\]/)
-        const fn = parts[parts.length - 1] || 'Untitled.md'
-        const initialSlot = createFileSlot(content, fn, fp)
-        switchToFile(initialSlot.id)
-      } catch {
-        // file read failed
-      }
-    }
-  } catch {
-    // not in browser context
-  }
-
-  // Check for files opened during app startup (before frontend was ready)
-  try {
-    const pending = await drainPendingFiles()
-    for (const path of pending) {
-      openedFile = true
-      if (workspaceRoot.value) {
-        openFileInNewWindow(path).catch(() => {})
-      } else {
-        openFileFromTree(path)
-      }
-    }
-  } catch {
-    // not in Tauri
-  }
-
-  // Only create an empty Untitled.md if nothing else was opened
-  if (!openedFile && openFiles.value.length === 0) {
-    const initialSlot = createFileSlot()
-    switchToFile(initialSlot.id)
-  }
+  await openStartupFiles()
 
   // ── Menu events (keyboard shortcuts are registered by useShortcuts) ──
   try {
@@ -396,12 +352,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  clearAllAutoSaveTimers()
-  destroySourceEditor()
   if (toastTimeout) clearTimeout(toastTimeout)
-  for (const slot of openFiles.value) {
-    slot.editor?.destroy()
-  }
 })
 </script>
 

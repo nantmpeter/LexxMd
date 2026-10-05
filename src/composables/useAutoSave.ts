@@ -1,3 +1,4 @@
+import { onBeforeUnmount } from 'vue'
 import type { ComputedRef } from 'vue'
 import { fileWrite, tempSave } from '../tauri/commands'
 import type { FileSlot } from '../types'
@@ -77,6 +78,8 @@ export function useAutoSave(options: UseAutoSaveOptions) {
     slot.dirty = true
     scheduleAutoSave(slot)
   }
+
+  onBeforeUnmount(clearAllAutoSaveTimers)
 
   return {
     clearAutoSaveTimer,

@@ -38,6 +38,14 @@ export function useQuickOpen(options: UseQuickOpenOptions) {
 
   const QUICK_OPEN_MAX_FILES = 500
   const QUICK_OPEN_MAX_DIRS = 300
+  // Max list_directory IPCs kept in flight at once: each wave reads a batch
+  // of directories concurrently, which cuts deep-tree latency without
+  // flooding the IPC bridge.
+  const QUICK_OPEN_SCAN_CONCURRENCY = 8
+
+  interface QuickOpenScanCounters {
+    dirs: number
+  }
   // Non-hidden build/dependency dirs that are expensive to recurse and rarely
   // contain user docs. Dotfile directories (`.git`, `.DS_Store`, …) are already
   // hidden by the `list_directory` backend.
@@ -57,30 +65,44 @@ export function useQuickOpen(options: UseQuickOpenOptions) {
       .replace(/\\/g, '/')
   }
 
-  async function collectQuickOpenFiles(
+  // Reads one directory's listing. Returns the subdirectories to visit
+  // next, or null when the directory is unreadable (bad permissions,
+  // dangling link): one failing directory is skipped instead of voiding
+  // the whole scan. `files` is shared across concurrent workers; the JS
+  // event loop makes the check-then-push below atomic.
+  async function scanQuickOpenDirectory(
     dirPath: string,
     rootPath: string,
     files: QuickOpenFile[],
-    counters: { dirs: number },
+    counters: QuickOpenScanCounters,
     isCancelled: () => boolean,
-  ) {
-    if (isCancelled()) return
-    if (files.length >= QUICK_OPEN_MAX_FILES || counters.dirs >= QUICK_OPEN_MAX_DIRS) return
+  ): Promise<string[] | null> {
+    if (isCancelled()) return null
+    if (files.length >= QUICK_OPEN_MAX_FILES || counters.dirs >= QUICK_OPEN_MAX_DIRS) return null
 
     counters.dirs += 1
-    const entries = await listDirectory(dirPath)
 
-    if (isCancelled()) return
+    let entries: DirEntry[]
+    try {
+      entries = await listDirectory(dirPath)
+    } catch (error) {
+      // The workspace root failing means nothing can be scanned at all —
+      // surface that to the user (same as before). Any nested directory
+      // failing is skipped so one bad folder keeps the rest of the scan.
+      if (dirPath === rootPath) throw error
+      return null
+    }
 
-    const directories: DirEntry[] = []
+    if (isCancelled()) return null
+
+    const subdirectories: string[] = []
     for (const entry of entries) {
-      if (files.length >= QUICK_OPEN_MAX_FILES) return
       if (entry.is_dir) {
-        if (!QUICK_OPEN_SKIP_DIRS.has(entry.name)) directories.push(entry)
+        if (!QUICK_OPEN_SKIP_DIRS.has(entry.name)) subdirectories.push(entry.path)
         continue
       }
 
-      if (entry.is_markdown) {
+      if (entry.is_markdown && files.length < QUICK_OPEN_MAX_FILES) {
         files.push({
           name: entry.name,
           path: entry.path,
@@ -89,9 +111,35 @@ export function useQuickOpen(options: UseQuickOpenOptions) {
       }
     }
 
-    for (const directory of directories) {
-      if (files.length >= QUICK_OPEN_MAX_FILES || counters.dirs >= QUICK_OPEN_MAX_DIRS) return
-      await collectQuickOpenFiles(directory.path, rootPath, files, counters, isCancelled)
+    return subdirectories
+  }
+
+  // Breadth-first scan: each wave reads up to QUICK_OPEN_SCAN_CONCURRENCY
+  // directory listings concurrently, then feeds their subdirectories into
+  // the next wave.
+  async function collectQuickOpenFiles(
+    rootPath: string,
+    files: QuickOpenFile[],
+    counters: QuickOpenScanCounters,
+    isCancelled: () => boolean,
+  ) {
+    const queue: string[] = [rootPath]
+
+    while (
+      queue.length > 0 &&
+      !isCancelled() &&
+      files.length < QUICK_OPEN_MAX_FILES &&
+      counters.dirs < QUICK_OPEN_MAX_DIRS
+    ) {
+      const wave = queue.splice(0, QUICK_OPEN_SCAN_CONCURRENCY)
+      const next = await Promise.all(
+        wave.map((dirPath) =>
+          scanQuickOpenDirectory(dirPath, rootPath, files, counters, isCancelled)
+        ),
+      )
+      for (const subdirectories of next) {
+        if (subdirectories) queue.push(...subdirectories)
+      }
     }
   }
 
@@ -116,7 +164,7 @@ export function useQuickOpen(options: UseQuickOpenOptions) {
 
     try {
       const files: QuickOpenFile[] = []
-      await collectQuickOpenFiles(root, root, files, { dirs: 0 }, isCancelled)
+      await collectQuickOpenFiles(root, files, { dirs: 0 }, isCancelled)
 
       // A newer scan started (or this one was cancelled); discard results.
       if (isCancelled()) return

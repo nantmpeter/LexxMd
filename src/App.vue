@@ -707,7 +707,11 @@ function toggleSourceMode() {
     sourceMode.value = false
     if (slot?.editor) {
       nextTick(() => {
-        if (md) {
+        // md is a string from getContent(): an empty string is valid content
+        // (the user cleared the whole document in source mode) and must still
+        // be pushed back to ProseMirror, so only null (no source editor) is
+        // skipped here.
+        if (md !== null) {
           try {
             slot.editor.commands.setContent(md, false)
             if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)

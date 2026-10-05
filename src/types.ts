@@ -9,6 +9,8 @@ export interface FileSlot {
   editor: EditorType | null
   element: HTMLElement | null
   lastSavedContent: string
+  /** Full path of the crash-recovery temp copy returned by tempSave (untitled slots only). */
+  tempPath?: string | null
 }
 
 export type SidebarMode = 'hidden' | 'tree' | 'flat'

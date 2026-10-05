@@ -95,6 +95,7 @@ import type { DirEntry } from './tauri/commands'
 import { exportPDF, exportDOCX, exportJPEG } from './export'
 import { arrayBufferToBase64 } from './export/utils'
 import type { FileSlot, QuickOpenFile } from './types'
+import { uniqueUntitledName } from './untitled'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -515,7 +516,7 @@ async function performAutoSave(slot: FileSlot): Promise<boolean> {
       slot.dirty = false
       slot.lastSavedContent = content
     } else {
-      await tempSave(slot.filename, content)
+      slot.tempPath = await tempSave(slot.filename, content)
       slot.lastSavedContent = content
     }
     return true
@@ -540,19 +541,28 @@ function scheduleAutoSaveForActiveFile() {
 
 // ── Slot management ────────────────────────────────────────
 
-function createFileSlot(content: string = '', fn: string = 'Untitled.md', fp: string | null = null): FileSlot {
+function createFileSlot(content: string = '', fn: string | null = null, fp: string | null = null): FileSlot {
   const id = `file-${++idCounter}`
   const slot: FileSlot = {
     id,
     filePath: fp,
-    filename: fn,
+    // Untitled slots get a cross-window-unique name: the temp directory is
+    // shared app-wide, so a constant name would collide between windows.
+    filename: fn ?? uniqueUntitledName(),
     dirty: false,
     editor: null,
     element: null,
     lastSavedContent: content,
+    tempPath: null,
   }
   openFiles.value.push(slot)
   return slot
+}
+
+function cleanupSlotTemp(slot: FileSlot) {
+  if (!slot.tempPath) return
+  deleteTempFile(slot.tempPath).catch(() => { /* best effort */ })
+  slot.tempPath = null
 }
 
 function setSlotElement(id: string, el: HTMLElement | null) {
@@ -612,6 +622,7 @@ async function closeFile(slot: FileSlot): Promise<boolean> {
   }
 
   clearAutoSaveTimer(slot)
+  cleanupSlotTemp(slot)
   slot.editor?.destroy()
 
   const idx = openFiles.value.findIndex(f => f.id === slot.id)
@@ -661,6 +672,9 @@ async function handleSave() {
         slot.filename = parts[parts.length - 1] || 'Untitled.md'
         slot.dirty = false
         slot.lastSavedContent = content
+        // The document now lives at its real path: drop the crash-recovery
+        // temp copy so the next launch does not offer a stale duplicate.
+        cleanupSlotTemp(slot)
         showToast('Saved', 'success')
       }
     }

@@ -695,9 +695,50 @@ html, body {
 }
 
 /* ── Print ─────────────────────────────────────────────────── */
+/* Native print path (File > Print... → window.print()): the system print
+   dialog's "Save as PDF" produces selectable-text output, unlike the
+   bitmap-based Export pipeline. */
+
+@page {
+  margin: 18mm 16mm;
+}
 
 @media print {
-  body {
+  /* Force the light palette no matter which theme is active: every chrome
+     and content rule reads the shared variables, so resetting them here
+     turns the whole document black-on-white (dark hljs colors would be
+     near-invisible on white paper). Each selector matches the one that
+     defines the dark palette and comes later in the file, so it wins. */
+  :root,
+  :root[data-theme="dark"],
+  :root:not([data-theme="light"]) {
+    --bg: #ffffff;
+    --bg-secondary: #f6f8fa;
+    --bg-code: #f0f2f5;
+    --text: #24292e;
+    --text-secondary: #6a737d;
+    --text-code: #333;
+    --border: #e1e4e8;
+    --border-dark: #d1d5da;
+    --accent: #0366d6;
+    --link: #0366d6;
+    --code-bg: #f6f8fa;
+    --code-color: #032f62;
+    --marker: #999;
+    --hljs-comment: #6a737d;
+    --hljs-keyword: #d73a49;
+    --hljs-string: #032f62;
+    --hljs-number: #005cc5;
+    --hljs-title: #6f42c1;
+    --hljs-type: #e36209;
+    --hljs-built_in: #005cc5;
+  }
+
+  /* The app shell pins html/body to viewport height with overflow hidden,
+     which clips print output to the first page — let content flow. */
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
     background: #fff !important;
     color: #24292e !important;
   }
@@ -738,7 +779,20 @@ html, body {
     content: '' !important;
   }
   .md-prefix { display: none !important; }
-  /* Hide editor chrome */
+  /* Hide all app chrome: menu bar (Windows toolbar), sidebar, status bar,
+     find bar, QuickOpen / Settings modals, outline, bubble toolbar, link
+     popup, source-mode exit button, export overlay, toasts. */
+  .menu-bar,
+  .sidebar-root,
+  .find-bar,
+  .quick-open-backdrop,
+  .settings-backdrop,
+  .export-overlay,
+  .outline-root,
+  .outline-edge-trigger,
+  .outline-overlay-backdrop,
+  .bubble-toolbar,
+  .link-popup,
   .source-exit-btn,
   .statusbar,
   .toast { display: none !important; }

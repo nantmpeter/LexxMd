@@ -16,6 +16,7 @@ interface ShortcutActions {
   handleExportJPEG: () => void
   handleCycleNext: () => void
   handleCyclePrev: () => void
+  handlePrint: () => void
   openPreferences: () => void
   isSourceMode: () => boolean
 }
@@ -39,6 +40,7 @@ export function useShortcuts(actions: ShortcutActions) {
     ep: actions.handleExportPDF,
     ed: actions.handleExportDOCX,
     ej: actions.handleExportJPEG,
+    pr: actions.handlePrint,
     prefs: actions.openPreferences,
   }
 
@@ -75,7 +77,11 @@ export function useShortcuts(actions: ShortcutActions) {
       e.preventDefault()
       actions.openSearch()
     }
-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); actions.openQuickOpen() }
+    // Cmd+P (no Alt) stays Quick Open; Cmd+Alt+P is Print — without the
+    // altKey guard on the Quick Open branch, the print accelerator would
+    // trigger both handlers.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') { e.preventDefault(); actions.openQuickOpen() }
+    if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === 'p') { e.preventDefault(); actions.handlePrint() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 's') { e.preventDefault(); actions.handleSave() }
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'S') { e.preventDefault(); actions.handleSaveAs() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'o') { e.preventDefault(); actions.handleOpen() }

@@ -115,6 +115,10 @@ pub fn run() {
                     &MenuItem::with_id(app, "fs", "Save", true, None::<String>)?,
                     &MenuItem::with_id(app, "sa", "Save As...", true, Some("CmdOrCtrl+Shift+S"))?,
                     &PredefinedMenuItem::separator(app)?,
+                    // Cmd+P is taken by Quick Open; the Alt variant keeps the
+                    // print entry point visible in the menu without a clash.
+                    &MenuItem::with_id(app, "pr", "Print...", true, Some("CmdOrCtrl+Alt+P"))?,
+                    &PredefinedMenuItem::separator(app)?,
                     &Submenu::with_items(app, "Export", true, &[
                         &MenuItem::with_id(app, "ep", "Export as PDF...", true, None::<String>)?,
                         &MenuItem::with_id(app, "ed", "Export as DOCX...", true, None::<String>)?,

@@ -232,6 +232,9 @@ const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
   handleClose, toggleSourceMode,
   handleExportPDF, handleExportDOCX, handleExportJPEG,
   handleCycleNext, handleCyclePrev,
+  // Native print: the system dialog offers "Save as PDF", i.e. selectable
+  // text output — the long-term replacement for the bitmap-based export.
+  handlePrint: () => window.print(),
   openPreferences,
   isSourceMode: () => sourceMode.value,
 })

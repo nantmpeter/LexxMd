@@ -56,6 +56,7 @@ const menus: MenuDef[] = [
       { label: 'Open Folder...', action: 'ff', accel: 'Ctrl+Shift+O' },
       '---',
       { label: 'Save', action: 'fs', accel: 'Ctrl+S' },
+      { label: 'Print...', action: 'pr', accel: 'Ctrl+Alt+P' },
       '---',
       { label: 'Preferences...', action: 'prefs', accel: 'Ctrl+,' },
       '---',

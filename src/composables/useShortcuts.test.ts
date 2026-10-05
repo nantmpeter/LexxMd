@@ -19,6 +19,7 @@ function createActions() {
     handleExportJPEG: vi.fn(),
     handleCycleNext: vi.fn(),
     handleCyclePrev: vi.fn(),
+    handlePrint: vi.fn(),
     openPreferences: vi.fn(),
     isSourceMode: vi.fn(() => false),
   }
@@ -155,5 +156,29 @@ describe('useShortcuts IME composition guard', () => {
 
     fireKeydown({ key: ',', metaKey: true })
     expect(actions.openPreferences).toHaveBeenCalledTimes(2)
+  })
+
+  it('Cmd+Alt+P prints without tripping Quick Open, and vice versa', () => {
+    const actions = createActions()
+    const exposed: { onMenuBarEvent?: (id: string) => void } = {}
+    const Host = defineComponent({
+      setup() {
+        const api = useShortcuts(actions)
+        exposed.onMenuBarEvent = api.onMenuBarEvent
+        return () => h('div')
+      },
+    })
+    wrapper = mount(Host)
+
+    fireKeydown({ key: 'p', metaKey: true, altKey: true })
+    expect(actions.handlePrint).toHaveBeenCalledTimes(1)
+    expect(actions.openQuickOpen).not.toHaveBeenCalled()
+
+    fireKeydown({ key: 'p', metaKey: true })
+    expect(actions.handlePrint).toHaveBeenCalledTimes(1)
+    expect(actions.openQuickOpen).toHaveBeenCalledTimes(1)
+
+    exposed.onMenuBarEvent?.('pr')
+    expect(actions.handlePrint).toHaveBeenCalledTimes(2)
   })
 })

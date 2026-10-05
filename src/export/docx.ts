@@ -5,6 +5,138 @@ import {
 } from 'docx'
 import { cloneEditorContent } from './utils'
 
+/**
+ * Widest image placed into the DOCX, in CSS px (docx ImageRun transformation
+ * units). A4 content width (8.27in) minus the export margins (0.75in each
+ * side) leaves ~6.8in ≈ 650 px at 96dpi; 620 keeps a little slack. Larger
+ * images are scaled down proportionally so a 4000px original never lands in
+ * the document at native size.
+ */
+const MAX_IMAGE_WIDTH_PX = 620
+
+export type DocxImageFormat = 'png' | 'jpg' | 'gif' | 'bmp'
+
+export interface DocxImageRunData {
+  data: Uint8Array
+  format: DocxImageFormat
+  width: number
+  height: number
+}
+
+/** Magic-byte sniffing — the URL extension / data-URL mime may lie or be absent. */
+export function sniffImageFormat(bytes: Uint8Array): DocxImageFormat | null {
+  if (bytes.length < 2) return null
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.length >= 3 && bytes[2] === 0xff) return 'jpg'
+  if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return 'gif'
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d) return 'bmp'
+  return null
+}
+
+const DATA_URL_RE = /^data:image\/(png|jpeg|jpg|gif|bmp);base64,([\s\S]*)$/
+
+function decodeDataUrl(src: string): { bytes: Uint8Array; format: DocxImageFormat } | null {
+  const m = src.match(DATA_URL_RE)
+  if (!m) return null
+  try {
+    const raw = atob(m[2])
+    const bytes = new Uint8Array(raw.length)
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+    const format: DocxImageFormat = m[1] === 'png' ? 'png' : m[1] === 'gif' ? 'gif' : m[1] === 'bmp' ? 'bmp' : 'jpg'
+    return { bytes, format }
+  } catch {
+    return null
+  }
+}
+
+async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    return new Uint8Array(await res.arrayBuffer())
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Turn an img src into a URL fetch() can read inside the webview. data:/http(s)/
+ * asset: URLs (and Tauri's http://asset.localhost form on Windows) pass through;
+ * plain filesystem paths go through Tauri's asset protocol. Returns null when
+ * the Tauri API is unavailable (plain browser) for a non-URL src.
+ */
+async function toFetchableUrl(src: string): Promise<string | null> {
+  if (/^(data|https?|blob):/.test(src) || src.startsWith('asset:') || /:\/\/asset\.localhost\//.test(src)) {
+    return src
+  }
+  try {
+    const { convertFileSrc } = await import('@tauri-apps/api/core')
+    return convertFileSrc(src)
+  } catch {
+    return null
+  }
+}
+
+const FALLBACK_IMAGE_SIZE = { width: 480, height: 360 }
+
+/**
+ * Resolve the display size for an embedded image, preferring the rendered box
+ * (the export clone is attached to the document, so layout values are real),
+ * then the HTML width/height attributes, then the intrinsic pixel size.
+ * Caps the width at MAX_IMAGE_WIDTH_PX, scaling height proportionally.
+ */
+export function resolveDocxImageSize(img: {
+  clientWidth: number
+  clientHeight: number
+  width: number
+  height: number
+  naturalWidth: number
+  naturalHeight: number
+}): { width: number; height: number } {
+  let w = img.clientWidth
+  let h = img.clientHeight
+  if (w <= 0 || h <= 0) { w = img.width; h = img.height }
+  if (w <= 0 || h <= 0) { w = img.naturalWidth; h = img.naturalHeight }
+  if (w <= 0 || h <= 0) return { ...FALLBACK_IMAGE_SIZE }
+
+  if (w > MAX_IMAGE_WIDTH_PX) {
+    h = Math.round(h * (MAX_IMAGE_WIDTH_PX / w))
+    w = MAX_IMAGE_WIDTH_PX
+  }
+  return { width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)) }
+}
+
+/**
+ * Load one <img> for DOCX embedding. Returns null when the bytes cannot be
+ * resolved (unreadable file, unsupported format) — callers skip the image
+ * with a console.warn instead of failing the whole export.
+ */
+export async function loadDocxImage(img: HTMLImageElement): Promise<DocxImageRunData | null> {
+  const src = img.getAttribute('src') || ''
+  if (!src) return null
+
+  let bytes: Uint8Array | null = null
+  let format: DocxImageFormat | null = null
+
+  const data = decodeDataUrl(src)
+  if (data) {
+    bytes = data.bytes
+    format = data.format
+  } else {
+    const url = await toFetchableUrl(src)
+    if (url) bytes = await fetchImageBytes(url)
+  }
+  if (!bytes || bytes.length === 0) return null
+
+  // Trust the magic bytes over the declared mime: the data ends up in the
+  // docx package labelled with this format, and a wrong label corrupts it.
+  format = sniffImageFormat(bytes) || format
+  if (!format) return null
+
+  const size = resolveDocxImageSize(img)
+  return { data: bytes, format, width: size.width, height: size.height }
+}
+
 const HLJS_COLORS: Record<string, string> = {
   'hljs-keyword': 'D73A49', 'hljs-string': '032F62', 'hljs-number': '005CC5',
   'hljs-comment': '6A737D', 'hljs-title': '6F42C1', 'hljs-type': 'E36209',
@@ -152,6 +284,20 @@ export async function exportDOCX(editorEl: HTMLElement): Promise<Blob> {
       }
     }
 
+    // Pre-load all inline images. The clone is attached to the document, so
+    // layout-based sizing (clientWidth/Height) is available here. A failed
+    // image is skipped with a warning — one broken path must not abort the
+    // whole export (the walk below simply emits no run for it).
+    const images = new Map<Element, DocxImageRunData>()
+    for (const img of Array.from(clone.querySelectorAll('img'))) {
+      const loaded = await loadDocxImage(img as HTMLImageElement)
+      if (loaded) {
+        images.set(img, loaded)
+      } else {
+        console.warn(`[export:docx] skipped unresolvable image: ${img.getAttribute('src') || '(no src)'}`)
+      }
+    }
+
     // Parse the clone
     const pm = clone.querySelector('.ProseMirror') || clone
     const children: (Paragraph | Table)[] = []
@@ -161,19 +307,19 @@ export async function exportDOCX(editorEl: HTMLElement): Promise<Blob> {
       const tag = node.tagName.toLowerCase()
 
       if (tag.match(/^h[1-6]$/)) {
-        children.push(convertHeading(node))
+        children.push(convertHeading(node, images))
       } else if (tag === 'p') {
-        children.push(convertParagraph(node))
+        children.push(convertParagraph(node, images))
       } else if (tag === 'blockquote') {
-        children.push(...convertBlockquote(node))
+        children.push(...convertBlockquote(node, images))
       } else if (tag === 'ul' || tag === 'ol') {
-        children.push(...convertList(node, tag === 'ol'))
+        children.push(...convertList(node, tag === 'ol', 0, images))
       } else if (tag === 'pre' && !node.closest('.rich-block-wrapper')) {
         children.push(...convertCodeBlock(node))
       } else if (tag === 'div' && (node.getAttribute('data-type')?.startsWith('rich-') || node.classList.contains('rich-block-wrapper'))) {
         children.push(...convertRichBlock(node, richImages))
       } else if (tag === 'table') {
-        children.push(convertTable(node))
+        children.push(convertTable(node, images))
       } else if (tag === 'hr') {
         children.push(new Paragraph({
           children: [new TextRun('')],
@@ -197,7 +343,7 @@ export async function exportDOCX(editorEl: HTMLElement): Promise<Blob> {
             continue
           }
         }
-        children.push(convertParagraph(node))
+        children.push(convertParagraph(node, images))
       }
       node = node.nextElementSibling
     }
@@ -219,7 +365,7 @@ export async function exportDOCX(editorEl: HTMLElement): Promise<Blob> {
 
 // ── Converters ──────────────────────────────────────────────
 
-function convertHeading(el: Element): Paragraph {
+function convertHeading(el: Element, images?: Map<Element, DocxImageRunData>): Paragraph {
   const level = parseInt(el.tagName[1])
   const map: Record<number, any> = {
     1: HeadingLevel.HEADING_1, 2: HeadingLevel.HEADING_2, 3: HeadingLevel.HEADING_3,
@@ -227,25 +373,25 @@ function convertHeading(el: Element): Paragraph {
   }
   return new Paragraph({
     heading: map[level] || HeadingLevel.HEADING_1,
-    children: extractRuns(el),
+    children: extractRuns(el, images),
     spacing: { before: level <= 2 ? 280 : 200, after: 80 },
   })
 }
 
-function convertParagraph(el: Element): Paragraph {
+function convertParagraph(el: Element, images?: Map<Element, DocxImageRunData>): Paragraph {
   return new Paragraph({
-    children: extractRuns(el),
+    children: extractRuns(el, images),
     spacing: { after: 80, line: 276 },
   })
 }
 
-function convertBlockquote(el: Element): Paragraph[] {
+function convertBlockquote(el: Element, images?: Map<Element, DocxImageRunData>): Paragraph[] {
   const paragraphs: Paragraph[] = []
   const ps = el.querySelectorAll(':scope > p')
   const sources = ps.length > 0 ? Array.from(ps) : [el]
   sources.forEach(p => {
     paragraphs.push(new Paragraph({
-      children: extractRuns(p),
+      children: extractRuns(p, images),
       indent: { left: 240 },
       border: { left: { style: 'single' as any, size: 4, color: 'd1d5da', space: 6 } },
       spacing: { after: 40, line: 276 },
@@ -254,13 +400,13 @@ function convertBlockquote(el: Element): Paragraph[] {
   return paragraphs
 }
 
-function convertList(el: Element, ordered: boolean, depth: number = 0): Paragraph[] {
+function convertList(el: Element, ordered: boolean, depth: number = 0, images?: Map<Element, DocxImageRunData>): Paragraph[] {
   const paragraphs: Paragraph[] = []
   let counter = 1
   for (const li of el.children) {
     if (li.tagName.toLowerCase() !== 'li') continue
     const contentEl = li.querySelector(':scope > p') || li
-    const runs = extractRuns(contentEl)
+    const runs = extractRuns(contentEl, images)
     const checkbox = li.querySelector('input[type="checkbox"]')
     const prefix = checkbox
       ? ((checkbox as HTMLInputElement).checked ? '\u2611 ' : '\u2610 ')
@@ -271,7 +417,7 @@ function convertList(el: Element, ordered: boolean, depth: number = 0): Paragrap
       spacing: { after: 20, line: 276 },
     }))
     const nested = li.querySelector(':scope > ul, :scope > ol')
-    if (nested) paragraphs.push(...convertList(nested, nested.tagName.toLowerCase() === 'ol', depth + 1))
+    if (nested) paragraphs.push(...convertList(nested, nested.tagName.toLowerCase() === 'ol', depth + 1, images))
     counter++
   }
   return paragraphs
@@ -348,14 +494,14 @@ function convertRichBlock(el: Element, images: Map<Element, { data: Uint8Array; 
   })]
 }
 
-function convertTable(el: Element): Table {
+function convertTable(el: Element, images?: Map<Element, DocxImageRunData>): Table {
   const rows: TableRow[] = []
   for (const tr of el.querySelectorAll('tr')) {
     const cells: TableCell[] = []
     for (const cell of tr.querySelectorAll('td, th')) {
       const isHeader = cell.tagName.toLowerCase() === 'th'
       cells.push(new TableCell({
-        children: [new Paragraph({ children: extractRuns(cell), spacing: { before: 20, after: 20 } })],
+        children: [new Paragraph({ children: extractRuns(cell, images), spacing: { before: 20, after: 20 } })],
         shading: isHeader ? { type: 'clear' as any, fill: 'f6f8fa' } : undefined,
       }))
     }
@@ -427,9 +573,17 @@ function extractCodeLineRuns(el: Element): TextRun[][] {
   return lines
 }
 
-/** Extract inline TextRun/ExternalHyperlink from element children. */
-function extractRuns(el: Element): (TextRun | ExternalHyperlink)[] {
-  const runs: (TextRun | ExternalHyperlink)[] = []
+/** A run that can appear inside a paragraph body. */
+export type DocxRun = TextRun | ExternalHyperlink | ImageRun
+
+/**
+ * Extract inline TextRun/ImageRun/ExternalHyperlink from element children.
+ * `images` maps <img> elements to pre-loaded image data (see loadDocxImage);
+ * an <img> missing from the map is skipped — its load failure was already
+ * warned about during the pre-pass.
+ */
+export function extractRuns(el: Element, images?: Map<Element, DocxImageRunData>): DocxRun[] {
+  const runs: DocxRun[] = []
 
   function walk(node: Node, opts: Record<string, unknown> = {}) {
     if (node.nodeType === 3) {
@@ -447,6 +601,22 @@ function extractRuns(el: Element): (TextRun | ExternalHyperlink)[] {
       return
     }
     if (tag === 'span' && element.classList.contains('md-prefix')) return
+
+    if (tag === 'img') {
+      // <img> has no children to walk; an unmapped image means the pre-pass
+      // could not load it and already warned — keep the export running.
+      const img = images?.get(element)
+      if (img) {
+        const alt = element.getAttribute('alt') || 'image'
+        runs.push(new ImageRun({
+          data: img.data,
+          type: img.format,
+          transformation: { width: img.width, height: img.height },
+          altText: { name: alt, description: alt, title: alt },
+        }))
+      }
+      return
+    }
 
     if (tag === 'strong' || tag === 'b')
       for (const c of element.childNodes) walk(c, { ...opts, bold: true })

@@ -5,6 +5,7 @@ import {
   loadDocxImage,
   resolveDocxImageSize,
   extractRuns,
+  convertStandaloneImage,
   type DocxImageRunData,
 } from './docx'
 
@@ -214,5 +215,26 @@ describe('extractRuns img branch', () => {
     expect(runs.some((r) => r instanceof ImageRun)).toBe(false)
     // The surrounding text runs survive the skipped image.
     expect(runs.length).toBe(2)
+  })
+})
+
+describe('convertStandaloneImage', () => {
+  const imgData: DocxImageRunData = {
+    data: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]),
+    format: 'png',
+    width: 320,
+    height: 240,
+  }
+
+  it('emits a centered image paragraph for a mapped block-level img', () => {
+    const el = fakeImg({ src: 'asset://localhost/%2FUsers%2Fme%2Fcat.png' })
+    const map = new Map([[el as unknown as Element, imgData]])
+    const paras = convertStandaloneImage(el, map)
+    expect(paras.length).toBe(1)
+  })
+
+  it('emits nothing for an unmapped img (load already failed and warned)', () => {
+    const el = fakeImg({ src: 'asset://localhost/%2FUsers%2Fme%2Fcat.png' })
+    expect(convertStandaloneImage(el)).toEqual([])
   })
 })

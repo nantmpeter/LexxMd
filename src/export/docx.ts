@@ -374,6 +374,8 @@ export async function exportDOCX(editorEl: HTMLElement): Promise<{ blob: Blob; i
         children.push(...convertCodeBlock(node))
       } else if (tag === 'div' && (node.getAttribute('data-type')?.startsWith('rich-') || node.classList.contains('rich-block-wrapper'))) {
         children.push(...convertRichBlock(node, richImages))
+      } else if (tag === 'img') {
+        children.push(...convertStandaloneImage(node, images))
       } else if (tag === 'table') {
         children.push(convertTable(node, images))
       } else if (tag === 'hr') {
@@ -546,6 +548,29 @@ function convertRichBlock(el: Element, images: Map<Element, { data: Uint8Array; 
   return [new Paragraph({
     children: [new TextRun({ text: source, font: 'Courier New', size: 18 })],
     shading: { type: 'clear' as any, fill: 'f6f8fa' },
+    spacing: { before: 100, after: 100 },
+  })]
+}
+
+/**
+ * Convert a block-level (top-level) <img> into a centered image paragraph.
+ * LexxImage is `inline: false`, so markdown images render as direct children
+ * of .ProseMirror — the top-level walk hits them as `img`, not inside a p.
+ * Without this branch the pre-loaded image data was silently dropped (an
+ * <img> has no children, so extractRuns produced an empty paragraph).
+ */
+export function convertStandaloneImage(el: Element, images?: Map<Element, DocxImageRunData>): Paragraph[] {
+  const img = images?.get(el)
+  if (!img) return []
+  const alt = el.getAttribute('alt') || 'image'
+  return [new Paragraph({
+    children: [new ImageRun({
+      data: img.data,
+      type: img.format,
+      transformation: { width: img.width, height: img.height },
+      altText: { name: alt, description: alt, title: alt },
+    })],
+    alignment: 'center' as any,
     spacing: { before: 100, after: 100 },
   })]
 }

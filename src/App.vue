@@ -80,7 +80,6 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { getSearchState, replaceActiveSearchMatch, replaceAllSearchMatches, updateSearch } from './editor/extensions/search-match'
 import StatusBar from './ui/StatusBar.vue'
 import OutlineView from './ui/OutlineView.vue'
 import Sidebar from './ui/Sidebar.vue'
@@ -96,6 +95,7 @@ import { useAutoSave } from './composables/useAutoSave'
 import { useSourceMode } from './composables/useSourceMode'
 import { useFileSlots } from './composables/useFileSlots'
 import { useShortcuts } from './composables/useShortcuts'
+import { useFindReplace } from './composables/useFindReplace'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -104,12 +104,6 @@ const openFiles = ref<FileSlot[]>([])
 const activeFileId = ref('')
 const toast = ref<{ message: string; type: 'error' | 'success' } | null>(null)
 const updateInfo = ref<{ version: string; downloadAndInstall: () => Promise<void> } | null>(null)
-const searchOpen = ref(false)
-const searchQuery = ref('')
-const replaceQuery = ref('')
-const searchActiveIndex = ref(-1)
-const searchTotal = ref(0)
-const searchInputEl = ref<InstanceType<typeof FindBar> | null>(null)
 // Bumped on every editor document change. The editor instances are markRaw'd,
 // so StatusBar needs this reactive counter to refresh word/char counts while
 // the user types.
@@ -141,12 +135,6 @@ const activeFile = computed(() =>
 const activeEditor = computed(() => activeFile.value?.editor ?? null)
 const activeFilename = computed(() => activeFile.value?.filename ?? 'Untitled.md')
 const activeDirty = computed(() => activeFile.value?.dirty ?? false)
-const searchCountLabel = computed(() => {
-  if (!searchQuery.value) return ''
-  if (searchTotal.value === 0) return 'No results'
-  return `${searchActiveIndex.value + 1} of ${searchTotal.value}`
-})
-
 // Sync filename to native window title
 watch(activeFilename, (fn) => {
   updateWindowTitle(fn).catch(() => { /* not in Tauri */ })
@@ -178,9 +166,36 @@ const {
   activeFile,
   getMarkdownContent,
   scheduleAutoSave,
-  closeSearch,
+  // Bound after useFindReplace() below; the call itself is deferred until the
+  // user actually toggles source mode, so the forward reference is safe.
+  closeSearch: () => searchApi.closeSearch(),
 })
 const sourceModeApi = { syncSourceToSlot }
+
+const searchApi = useFindReplace({
+  activeEditor,
+  activeFileId,
+  openFiles,
+  editorContainerEl,
+  sourceMode,
+  scheduleAutoSaveForActiveFile,
+})
+const {
+  searchOpen,
+  searchQuery,
+  replaceQuery,
+  searchTotal,
+  searchInputEl,
+  searchCountLabel,
+  syncSearchState,
+  openSearch,
+  closeSearch,
+  goToNextSearchMatch,
+  goToPreviousSearchMatch,
+  replaceCurrentMatch,
+  replaceAllMatches,
+  onSearchEnter,
+} = searchApi
 
 const {
   createFileSlot,
@@ -253,136 +268,6 @@ function showToast(message: string, type: 'error' | 'success' = 'error') {
   if (toastTimeout) clearTimeout(toastTimeout)
   toast.value = { message, type }
   toastTimeout = setTimeout(() => { toast.value = null }, 4000)
-}
-
-// ── Find in document ───────────────────────────────────────
-
-function syncSearchState() {
-  const state = getSearchState(activeEditor.value)
-  searchActiveIndex.value = state.activeIndex
-  searchTotal.value = state.matches.length
-}
-
-function clearSearchForAllEditors() {
-  for (const slot of openFiles.value) {
-    updateSearch(slot.editor, { query: '' })
-  }
-}
-
-function getSelectedSearchText() {
-  const editor = activeEditor.value
-  if (!editor) return ''
-
-  const { from, to, empty } = editor.view.state.selection
-  if (empty) return ''
-
-  return editor.view.state.doc.textBetween(from, to, ' ')
-}
-
-function scrollToActiveSearchMatch() {
-  const editor = activeEditor.value
-  const container = editorContainerEl.value
-  const state = getSearchState(editor)
-  const match = state.matches[state.activeIndex]
-  if (!editor || !container || !match) return
-
-  requestAnimationFrame(() => {
-    try {
-      const coords = editor.view.coordsAtPos(match.from)
-      const rect = container.getBoundingClientRect()
-      const top = container.scrollTop + (coords.top - rect.top) - rect.height / 3
-      container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
-    } catch {
-      // The document may have changed before the browser paints.
-    }
-  })
-}
-
-function applySearchQuery() {
-  updateSearch(activeEditor.value, { query: searchQuery.value })
-  syncSearchState()
-  scrollToActiveSearchMatch()
-}
-
-function focusSearchInput() {
-  // The find bar is v-if'd, so wait one tick for it to mount before focusing.
-  nextTick(() => searchInputEl.value?.focus())
-}
-
-function openSearch(initialQuery = '') {
-  if (sourceMode.value) return
-
-  const selectedText = initialQuery || getSelectedSearchText()
-  if (selectedText || !searchOpen.value) {
-    searchQuery.value = selectedText
-  }
-  if (!searchOpen.value) replaceQuery.value = ''
-
-  searchOpen.value = true
-  updateSearch(activeEditor.value, { query: searchQuery.value })
-  syncSearchState()
-  focusSearchInput()
-}
-
-function closeSearch() {
-  clearSearchForAllEditors()
-  searchOpen.value = false
-  searchQuery.value = ''
-  syncSearchState()
-  nextTick(() => activeEditor.value?.commands.focus())
-}
-
-function goToSearchMatch(delta: number) {
-  const state = getSearchState(activeEditor.value)
-  if (state.matches.length === 0) return
-
-  const nextIndex = state.activeIndex + delta
-  updateSearch(activeEditor.value, {
-    query: searchQuery.value,
-    activeIndex: nextIndex,
-  })
-  syncSearchState()
-  scrollToActiveSearchMatch()
-}
-
-function goToNextSearchMatch() {
-  goToSearchMatch(1)
-}
-
-function goToPreviousSearchMatch() {
-  goToSearchMatch(-1)
-}
-
-function replaceCurrentMatch() {
-  if (searchTotal.value === 0) {
-    focusSearchInput()
-    return
-  }
-
-  replaceActiveSearchMatch(activeEditor.value, replaceQuery.value)
-  updateSearch(activeEditor.value, { query: searchQuery.value })
-  syncSearchState()
-  scrollToActiveSearchMatch()
-  scheduleAutoSaveForActiveFile()
-  focusSearchInput()
-}
-
-function replaceAllMatches() {
-  if (searchTotal.value === 0) {
-    focusSearchInput()
-    return
-  }
-
-  replaceAllSearchMatches(activeEditor.value, replaceQuery.value)
-  updateSearch(activeEditor.value, { query: searchQuery.value })
-  syncSearchState()
-  scheduleAutoSaveForActiveFile()
-  focusSearchInput()
-}
-
-function onSearchEnter(event: KeyboardEvent) {
-  if (event.shiftKey) goToPreviousSearchMatch()
-  else goToNextSearchMatch()
 }
 
 // ── Auto-update ─────────────────────────────────────────────
@@ -650,18 +535,6 @@ onMounted(async () => {
 
   // Crash recovery
   await checkCrashRecovery()
-})
-
-watch(activeEditor, () => {
-  if (!searchOpen.value) return
-  updateSearch(activeEditor.value, { query: searchQuery.value })
-  syncSearchState()
-  scrollToActiveSearchMatch()
-})
-
-watch(searchQuery, () => {
-  if (!searchOpen.value) return
-  applySearchQuery()
 })
 
 onBeforeUnmount(() => {

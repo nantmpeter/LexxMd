@@ -101,7 +101,8 @@ jobs:
         run: |
           mkdir -p website/.vitepress/dist/update
           gh release download ${{ github.ref_name }} \
-            --dir website/.vitepress/dist/update || true
+            --dir website/.vitepress/dist/update \
+            --pattern '*.tar.gz' --pattern '*.zip' --pattern 'latest.json' || true
 
       # Rewrite latest.json URLs to point to Cloudflare Pages
       - name: Rewrite update URLs

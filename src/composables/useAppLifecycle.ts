@@ -1,7 +1,9 @@
 import { ref } from 'vue'
 import type { Ref } from 'vue'
 import type { CommandProps } from '@tiptap/core'
-import { listTempFiles, deleteTempFile, fileRead, openFileInNewWindow } from '../tauri/commands'
+import {
+  listTempFiles, deleteTempFile, fileRead, openFileInNewWindow, consumePendingFile,
+} from '../tauri/commands'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
 import type { FileSlot } from '../types'
 import type { ToastFn } from './useQuickOpen'
@@ -128,6 +130,11 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
     await getCurrentWebviewWindow().listen<string>('file-open', (event) => {
       const path = event.payload
+      // The macOS Opened path emits AND buffers (the buffer is the cold-launch
+      // fallback for before this listener existed). Consuming the buffered
+      // copy now keeps the two paths single-delivery: a later window's
+      // drainPendingFiles must not re-open what this event just delivered.
+      consumePendingFile(path).catch(() => {})
       if (workspaceRoot.value) {
         // Folder mode → open file in a new window
         openFileInNewWindow(path).catch(() => {})

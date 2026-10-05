@@ -19,6 +19,20 @@ pub fn drain_pending_files(app: tauri::AppHandle) -> Vec<String> {
     Vec::new()
 }
 
+/// Remove a path from the startup buffer. Called by the frontend right after
+/// it handled a `file-open` event for that path: macOS `RunEvent::Opened` both
+/// emits and buffers (the buffer is the cold-launch fallback for when no
+/// listener exists yet), and without this consumption a buffered copy would be
+/// drained a second time by the next new window's mount (double open).
+#[tauri::command]
+pub fn consume_pending_file(app: tauri::AppHandle, path: String) {
+    if let Some(pending) = app.try_state::<PendingFiles>() {
+        if let Ok(mut buf) = pending.0.lock() {
+            buf.retain(|p| p != &path);
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileContent {
     pub path: String,

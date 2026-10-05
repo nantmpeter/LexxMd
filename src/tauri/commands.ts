@@ -107,3 +107,13 @@ export async function toggleFullscreen(): Promise<void> {
 export async function drainPendingFiles(): Promise<string[]> {
   return invoke<string[]>('drain_pending_files')
 }
+
+/**
+ * Drop a path from the backend startup buffer. Called right after this window
+ * handled a `file-open` event: the macOS Opened path both emits and buffers
+ * (the buffer is the cold-launch fallback), and without consuming the buffered
+ * copy the next new window's drainPendingFiles would open the file again.
+ */
+export async function consumePendingFile(path: string): Promise<void> {
+  return invoke<void>('consume_pending_file', { path })
+}

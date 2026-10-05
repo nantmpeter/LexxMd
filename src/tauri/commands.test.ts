@@ -9,6 +9,8 @@ import {
   listTempFiles,
   deleteTempFile,
   updateWindowTitle,
+  drainPendingFiles,
+  consumePendingFile,
 } from './commands'
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -121,5 +123,22 @@ describe('updateWindowTitle', () => {
     mockedInvoke.mockResolvedValue(undefined)
     await updateWindowTitle('My Document')
     expect(mockedInvoke).toHaveBeenCalledWith('update_window_title', { title: 'My Document' })
+  })
+})
+
+describe('drainPendingFiles', () => {
+  it('calls invoke and returns pending paths', async () => {
+    mockedInvoke.mockResolvedValue(['/a.md', '/b.md'])
+    const result = await drainPendingFiles()
+    expect(mockedInvoke).toHaveBeenCalledWith('drain_pending_files')
+    expect(result).toEqual(['/a.md', '/b.md'])
+  })
+})
+
+describe('consumePendingFile', () => {
+  it('calls invoke with the consumed path', async () => {
+    mockedInvoke.mockResolvedValue(undefined)
+    await consumePendingFile('/a.md')
+    expect(mockedInvoke).toHaveBeenCalledWith('consume_pending_file', { path: '/a.md' })
   })
 })

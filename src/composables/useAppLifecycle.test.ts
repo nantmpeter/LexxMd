@@ -9,6 +9,7 @@ vi.mock('../tauri/commands', () => ({
   deleteTempFile: vi.fn(),
   fileRead: vi.fn(),
   openFileInNewWindow: vi.fn(),
+  consumePendingFile: vi.fn(),
 }))
 
 vi.mock('../editor/extensions/lexx-image', () => ({

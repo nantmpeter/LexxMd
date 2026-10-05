@@ -54,22 +54,23 @@ pub fn run() {
     tauri::Builder::default()
         // Single-instance lock must be the FIRST registered plugin (upstream
         // requirement): a second launch is closed here and relayed to this
-        // process. The callback reuses the existing PendingFiles channel +
-        // `file-open` event so the frontend's regular file-open flow runs.
+        // process. The callback reuses the existing `file-open` event so the
+        // frontend's regular file-open flow runs.
         // On macOS double-open normally arrives via RunEvent::Opened below;
         // registering here too is harmless and covers direct binary launches.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
             }
+            // Emit ONLY — never push into PendingFiles here. This callback
+            // fires inside the already-running instance whose frontend listens
+            // for `file-open`, so the event delivers the file immediately; a
+            // buffered copy would survive the handling and be drained a second
+            // time by the next new window's mount (double open). (PendingFiles
+            // stays reserved for pre-frontend startup paths: the Windows argv
+            // buffer in setup and the macOS RunEvent::Opened buffer, where no
+            // listener exists yet and the emit alone would be lost.)
             for path in argv_md_files(&args) {
-                if let Some(pending) = app.try_state::<commands::PendingFiles>() {
-                    if let Ok(mut buf) = pending.0.lock() {
-                        buf.push(path.clone());
-                    }
-                }
-                // Emit for when the frontend is already listening; targeted at
-                // the window we just focused so other windows don't open it too.
                 emit_to_focused(app, "file-open", &path);
             }
         }))
@@ -95,6 +96,7 @@ pub fn run() {
             commands::update_window_title,
             commands::toggle_fullscreen,
             commands::drain_pending_files,
+            commands::consume_pending_file,
         ])
         .setup(|app| {
             // On Windows, file associations pass the path as a CLI argument.
@@ -205,14 +207,22 @@ pub fn run() {
                     for url in urls {
                         if let Ok(path) = url.to_file_path() {
                             let path_str = path.to_string_lossy().to_string();
-                            // Buffer for frontend to pick up on mount
+                            // Buffer: this event can fire during a cold launch,
+                            // BEFORE the webview has mounted its `file-open`
+                            // listener — the emit alone would be lost, so the
+                            // mount-time drain_pending_files is the fallback
+                            // delivery path.
                             if let Some(pending) = app.try_state::<commands::PendingFiles>() {
                                 if let Ok(mut buf) = pending.0.lock() {
                                     buf.push(path_str.clone());
                                 }
                             }
-                            // Also emit for when frontend is already listening;
-                            // the OS activation focused the target window.
+                            // Also emit for when the frontend is already
+                            // listening; the OS activation focused the target
+                            // window. To keep the two paths single-delivery,
+                            // the frontend consumes the buffered copy right
+                            // after handling this event (consume_pending_file),
+                            // so a later window's drain can never re-open it.
                             emit_to_focused(app, "file-open", &path_str);
                         }
                     }

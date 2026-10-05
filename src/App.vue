@@ -501,7 +501,8 @@ async function performAutoSave(slot: FileSlot) {
   // If in source mode, sync CM → PM
   if (sourceMode.value && sourceEditor && activeFile.value?.id === slot.id) {
     const md = sourceEditor.getContent()
-    slot.editor.commands.setContent(md)
+    // Internal sync, not a user edit: must not mark dirty / reschedule autosave
+    slot.editor.commands.setContent(md, false)
     if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
   }
 
@@ -578,7 +579,8 @@ function switchToFile(id: string) {
   // If in source mode, save CM content to outgoing slot
   if (sourceMode.value && sourceEditor && activeFile.value?.editor) {
     const md = sourceEditor.getContent()
-    activeFile.value.editor.commands.setContent(md)
+    // Internal sync, not a user edit: must not mark dirty / reschedule autosave
+    activeFile.value.editor.commands.setContent(md, false)
     if (activeFile.value.filePath) convertLocalImagesInEditor(activeFile.value.editor, activeFile.value.filePath)
   }
 
@@ -634,7 +636,8 @@ async function handleSave() {
   // If in source mode, sync CM → PM before saving
   if (sourceMode.value && sourceEditor) {
     const md = sourceEditor.getContent()
-    slot.editor.commands.setContent(md)
+    // Internal sync, not a user edit: must not mark dirty / reschedule autosave
+    slot.editor.commands.setContent(md, false)
   }
 
   clearAutoSaveTimer(slot)

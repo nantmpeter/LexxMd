@@ -51,10 +51,13 @@ export const FixContentParsing = Extension.create({
       setContent:
         (content: any, emitUpdate?: any, parseOptions?: any) =>
         (props: any) => {
-          const { editor } = props
+          const { editor, tr } = props
 
           // If it's already a ProseMirror Node/Fragment, delegate directly
           if (content && (content.type || content.content)) {
+            // Mirror @tiptap/core setContent: the update event is suppressed
+            // when the caller asked not to emit it (default is not to emit).
+            tr.setMeta('preventUpdate', !emitUpdate)
             return props.commands.insertContentAt(
               { from: 0, to: props.editor.state.doc.content.size },
               content,
@@ -76,6 +79,9 @@ export const FixContentParsing = Extension.create({
             const parser = PMDOMParser.fromSchema(editor.schema)
             const doc = parser.parse(dom)
 
+            // Same as above: keep core's preventUpdate semantics so
+            // insertContentAt's dispatch respects emitUpdate.
+            tr.setMeta('preventUpdate', !emitUpdate)
             return props.commands.insertContentAt(
               { from: 0, to: editor.state.doc.content.size },
               doc,

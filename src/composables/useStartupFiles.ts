@@ -13,8 +13,8 @@ interface UseStartupFilesOptions {
 /**
  * Opens the files this window was created for: the `workspace`/`file` query
  * params (new window from folder/file open), then any paths the OS opened
- * during app startup before the frontend was ready. Returns false from the
- * internal probe when nothing was opened so the caller can create a blank
+ * during app startup before the frontend was ready. Tracks internally via
+ * `openedFile` whether anything was opened so the caller can create a blank
  * Untitled document instead.
  */
 export function useStartupFiles(options: UseStartupFilesOptions) {

@@ -1,11 +1,12 @@
 import { ref } from 'vue'
 import type { Ref } from 'vue'
-import { listTempFiles, deleteTempFile, fileRead } from '../tauri/commands'
+import { listTempFiles, deleteTempFile, fileRead, openFileInNewWindow } from '../tauri/commands'
 import type { FileSlot } from '../types'
 import type { ToastFn } from './useQuickOpen'
 
 interface UseAppLifecycleOptions {
   openFiles: Ref<FileSlot[]>
+  workspaceRoot: Ref<string | null>
   showToast: ToastFn
   performAutoSave: (slot: FileSlot) => Promise<boolean>
   clearAllAutoSaveTimers: () => void
@@ -17,6 +18,7 @@ interface UseAppLifecycleOptions {
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
   const {
     openFiles,
+    workspaceRoot,
     showToast,
     performAutoSave,
     clearAllAutoSaveTimers,
@@ -111,11 +113,28 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     })
   }
 
+  // ── OS file-open events (double-click .md file, drag to dock, etc.) ──
+
+  async function registerFileOpenListener(openFileFromTree: (path: string) => void | Promise<void>): Promise<void> {
+    const { listen } = await import('@tauri-apps/api/event')
+    await listen<string>('file-open', (event) => {
+      const path = event.payload
+      if (workspaceRoot.value) {
+        // Folder mode → open file in a new window
+        openFileInNewWindow(path).catch(() => {})
+      } else {
+        // No workspace → open in current window
+        openFileFromTree(path)
+      }
+    })
+  }
+
   return {
     updateInfo,
     checkForUpdate,
     installUpdate,
     checkCrashRecovery,
     registerWindowCloseHandler,
+    registerFileOpenListener,
   }
 }

@@ -86,7 +86,6 @@ import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
 import FindBar from './ui/FindBar.vue'
 import QuickOpen from './ui/QuickOpen.vue'
-import { openFileInNewWindow } from './tauri/commands'
 import type { FileSlot } from './types'
 import { useQuickOpen } from './composables/useQuickOpen'
 import { useAutoSave } from './composables/useAutoSave'
@@ -126,44 +125,33 @@ const activeDirty = computed(() => activeFile.value?.dirty ?? false)
 
 // ── Composable assembly ────────────────────────────────────
 
-const {
-  workspaceRoot,
-  effectiveSidebarMode,
-  handleOpenFolder,
-} = useWorkspace({
-  openFiles,
-  activeFilename,
-  showToast,
+// Each useXxx factory takes explicit dependencies and returns the same names
+// the template and handlers have always used. Two pairs of composables are
+// mutually dependent (autosave ↔ source-mode sync, source mode ↔ find bar);
+// those bindings are deferred closures resolved right after both factories
+// have run — the deferred calls only fire at user-interaction time.
+
+const { workspaceRoot, effectiveSidebarMode, handleOpenFolder } = useWorkspace({
+  openFiles, activeFilename, showToast,
 })
 
 let toastTimeout: ReturnType<typeof setTimeout> | null = null
 
 const {
-  clearAutoSaveTimer,
-  clearAllAutoSaveTimers,
-  performAutoSave,
-  scheduleAutoSave,
-  scheduleAutoSaveForActiveFile,
+  clearAutoSaveTimer, clearAllAutoSaveTimers, performAutoSave,
+  scheduleAutoSave, scheduleAutoSaveForActiveFile,
 } = useAutoSave({
-  activeFile,
-  getMarkdownContent,
+  activeFile, getMarkdownContent, showToast,
   // Bound after useSourceMode() below; the call itself is deferred until an
   // autosave actually runs, so the forward reference is safe.
   syncSourceToSlot: (slot, opts) => sourceModeApi.syncSourceToSlot(slot, opts),
-  showToast,
 })
 
 const {
-  sourceMode,
-  sourceEditorEl,
-  getSourceEditor,
-  syncSourceToSlot,
-  toggleSourceMode,
-  destroySourceEditor,
+  sourceMode, sourceEditorEl, getSourceEditor, syncSourceToSlot,
+  toggleSourceMode, destroySourceEditor,
 } = useSourceMode({
-  activeFile,
-  getMarkdownContent,
-  scheduleAutoSave,
+  activeFile, getMarkdownContent, scheduleAutoSave,
   // Bound after useFindReplace() below; the call itself is deferred until the
   // user actually toggles source mode, so the forward reference is safe.
   closeSearch: () => searchApi.closeSearch(),
@@ -171,102 +159,44 @@ const {
 const sourceModeApi = { syncSourceToSlot }
 
 const searchApi = useFindReplace({
-  activeEditor,
-  activeFileId,
-  openFiles,
-  editorContainerEl,
-  sourceMode,
-  scheduleAutoSaveForActiveFile,
+  activeEditor, activeFileId, openFiles, editorContainerEl,
+  sourceMode, scheduleAutoSaveForActiveFile,
 })
 const {
-  searchOpen,
-  searchQuery,
-  replaceQuery,
-  searchTotal,
-  searchInputEl,
-  searchCountLabel,
-  syncSearchState,
-  openSearch,
-  closeSearch,
-  goToNextSearchMatch,
-  goToPreviousSearchMatch,
-  replaceCurrentMatch,
-  replaceAllMatches,
-  onSearchEnter,
+  searchOpen, searchQuery, replaceQuery, searchTotal, searchInputEl,
+  searchCountLabel, syncSearchState, openSearch, closeSearch,
+  goToNextSearchMatch, goToPreviousSearchMatch,
+  replaceCurrentMatch, replaceAllMatches, onSearchEnter,
 } = searchApi
 
-const {
-  handleExportPDF,
-  handleExportDOCX,
-  handleExportJPEG,
-} = useExport({
-  activeFile,
-  activeFilename,
-  showToast,
+const { handleExportPDF, handleExportDOCX, handleExportJPEG } = useExport({
+  activeFile, activeFilename, showToast,
 })
 
 const {
-  createFileSlot,
-  setSlotElement,
-  switchToFile,
-  closeFile,
-  handleSave,
-  handleOpen,
-  handleNew,
-  handleClose,
-  openFileFromTree,
-  handleCycleNext,
-  handleCyclePrev,
-  confirmDiscardChanges,
+  createFileSlot, setSlotElement, switchToFile, closeFile,
+  handleSave, handleOpen, handleNew, handleClose,
+  openFileFromTree, handleCycleNext, handleCyclePrev, confirmDiscardChanges,
 } = useFileSlots({
-  openFiles,
-  activeFileId,
-  activeFile,
-  activeIndex,
-  getMarkdownContent,
-  showToast,
+  openFiles, activeFileId, activeFile, activeIndex, getMarkdownContent, showToast,
   bumpDocVersion: () => { editorVersion.value++ },
   onActiveSlotDocumentChanged: (slot) => {
-    if (searchOpen.value && slot.id === activeFileId.value) {
-      syncSearchState()
-    }
+    if (searchOpen.value && slot.id === activeFileId.value) syncSearchState()
   },
-  scheduleAutoSave,
-  clearAutoSaveTimer,
-  sourceMode,
-  getSourceEditor,
-  syncSourceToSlot,
+  scheduleAutoSave, clearAutoSaveTimer,
+  sourceMode, getSourceEditor, syncSourceToSlot,
 })
 
 const {
-  quickOpenOpen,
-  quickOpenFiles,
-  quickOpenLoading,
-  quickOpenError,
-  quickOpenEl,
-  openQuickOpen,
-  closeQuickOpen,
-  openQuickOpenFile,
-} = useQuickOpen({
-  workspaceRoot,
-  showToast,
-  openFileFromTree,
-})
+  quickOpenOpen, quickOpenFiles, quickOpenLoading, quickOpenError, quickOpenEl,
+  openQuickOpen, closeQuickOpen, openQuickOpenFile,
+} = useQuickOpen({ workspaceRoot, showToast, openFileFromTree })
 
 const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
-  handleNew,
-  handleOpen,
-  handleOpenFolder,
-  openQuickOpen,
-  handleSave,
-  openSearch,
-  handleClose,
-  toggleSourceMode,
-  handleExportPDF,
-  handleExportDOCX,
-  handleExportJPEG,
-  handleCycleNext,
-  handleCyclePrev,
+  handleNew, handleOpen, handleOpenFolder, openQuickOpen, handleSave, openSearch,
+  handleClose, toggleSourceMode,
+  handleExportPDF, handleExportDOCX, handleExportJPEG,
+  handleCycleNext, handleCyclePrev,
   isSourceMode: () => sourceMode.value,
 })
 
@@ -276,8 +206,10 @@ const {
   installUpdate,
   checkCrashRecovery,
   registerWindowCloseHandler,
+  registerFileOpenListener,
 } = useAppLifecycle({
   openFiles,
+  workspaceRoot,
   showToast,
   performAutoSave,
   clearAllAutoSaveTimers,
@@ -317,22 +249,10 @@ function getMarkdownContent(slot: FileSlot): string | null {
 onMounted(async () => {
   await openStartupFiles()
 
-  // ── Menu events (keyboard shortcuts are registered by useShortcuts) ──
+  // ── Menu + file-open events (keyboard shortcuts live in useShortcuts) ──
   try {
     await registerMenuEventListener()
-
-    // File-open events from OS (double-click .md file, drag to dock, etc.)
-    const { listen } = await import('@tauri-apps/api/event')
-    await listen<string>('file-open', (event) => {
-      const path = event.payload
-      if (workspaceRoot.value) {
-        // Folder mode → open file in a new window
-        openFileInNewWindow(path).catch(() => {})
-      } else {
-        // No workspace → open in current window
-        openFileFromTree(path)
-      }
-    })
+    await registerFileOpenListener(openFileFromTree)
   } catch {
     // Not running in Tauri
   }

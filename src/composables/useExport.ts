@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import type { ComputedRef } from 'vue'
 import { exportPDF, exportDOCX, exportJPEG } from '../export'
 import { arrayBufferToBase64 } from '../export/utils'
-import { saveFileDialogWithFilter, fileWriteBinary } from '../tauri/commands'
+import { saveFileDialogWithFilter, fileWriteBinary, updateWindowTitle } from '../tauri/commands'
 import type { FileSlot } from '../types'
 import type { ToastFn } from './useQuickOpen'
 
@@ -74,6 +74,9 @@ export function useExport(options: UseExportOptions) {
             ? ` — images: ${imageStats.embedded} embedded`
             : ''
         showToast(`Exported as DOCX${stats}`, imageStats.skipped > 0 ? 'error' : 'success')
+        // ponytail: temporary diagnosis channel — packaged webview console is
+        // unreachable (devtools stripped in release); remove after root cause
+        updateWindowTitle(`DBG ${imageStats.embedded}e/${imageStats.skipped}s ${imageStats.firstSkipReason.slice(0, 100)}`)
       }
     } catch (e) {
       showToast(`DOCX export failed: ${e instanceof Error ? e.message : String(e)}`)

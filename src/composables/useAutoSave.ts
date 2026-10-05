@@ -43,9 +43,12 @@ export function useAutoSave(options: UseAutoSaveOptions) {
 
     // If in source mode, sync CM → PM for the visible slot. The helper is a
     // no-op outside source mode; the sync itself is internal (emitUpdate=false)
-    // and must not mark dirty / reschedule autosave.
+    // and must not mark dirty / reschedule autosave. Awaited for hygiene: the
+    // markdown serializer reads data-md-src, so the async image rewrite does
+    // not gate correctness here, but the await costs nothing and removes the
+    // ordering hazard if the save path ever grows a DOM consumer.
     if (activeFile.value?.id === slot.id) {
-      syncSourceToSlot(slot, { convertImages: true })
+      await syncSourceToSlot(slot, { convertImages: true })
     }
 
     const content = getMarkdownContent(slot)

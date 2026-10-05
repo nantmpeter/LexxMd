@@ -1,12 +1,17 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { computed, nextTick } from 'vue'
 import { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from 'tiptap-markdown'
 import { FixContentParsing } from '../editor/extensions/fix-content-parsing'
+import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
 import { useSourceMode } from './useSourceMode'
 import type { FileSlot } from '../types'
+
+vi.mock('../editor/extensions/lexx-image', () => ({
+  convertLocalImagesInEditor: vi.fn(async () => {}),
+}))
 
 describe('useSourceMode', () => {
   let editor: Editor | null = null
@@ -78,5 +83,24 @@ describe('useSourceMode', () => {
     syncSourceToSlot(slot, { convertImages: false })
 
     expect(updates).toHaveLength(0)
+  })
+
+  it('syncSourceToSlot forwards the image-conversion promise to awaiting callers', async () => {
+    // Export/print serialize the DOM after this sync: the src rewrite is an
+    // async transaction, so callers must be able to await it — if the promise
+    // were dropped here, serializing before it lands would export unresolved
+    // relative paths and lose every local image.
+    const { slot } = createTrackedSlot()
+    slot.filePath = '/tmp/docs/note.md'
+    const { sourceEditorEl, toggleSourceMode, syncSourceToSlot } = createComposable(slot)
+    sourceEditorEl.value = document.createElement('div')
+    toggleSourceMode()
+
+    vi.mocked(convertLocalImagesInEditor).mockClear()
+    const result = syncSourceToSlot(slot, { convertImages: true })
+
+    expect(result).toBeInstanceOf(Promise)
+    await result
+    expect(convertLocalImagesInEditor).toHaveBeenCalledWith(slot.editor, '/tmp/docs/note.md')
   })
 })

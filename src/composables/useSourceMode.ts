@@ -10,10 +10,23 @@ export interface SyncSourceToSlotOptions {
   convertImages: boolean
 }
 
+/**
+ * Push the CodeMirror content back into a slot's ProseMirror editor.
+ * Internal sync, not a user edit: must not mark dirty / reschedule autosave
+ * (setContent runs with emitUpdate=false). No-op when source mode is off or
+ * the slot has no editor.
+ *
+ * Returns the image-conversion promise when one runs: callers that serialize
+ * the document afterwards (export / print) MUST await it — the src rewrite is
+ * an async transaction, and serializing before it lands would export
+ * unresolved relative paths (missing images). Serialization that only reads
+ * the markdown (save flows, `data-md-src`) is unaffected and may fire and
+ * forget.
+ */
 export type SyncSourceToSlot = (
   slot: FileSlot | null | undefined,
   options: SyncSourceToSlotOptions,
-) => void
+) => void | Promise<void>
 
 interface UseSourceModeOptions {
   activeFile: ComputedRef<FileSlot | null>
@@ -44,7 +57,11 @@ export function useSourceMode(options: UseSourceModeOptions) {
     if (!sourceMode.value || !sourceEditor || !slot?.editor) return
     const md = sourceEditor.getContent()
     slot.editor.commands.setContent(md, false)
-    if (convertImages && slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
+    // Hand the async conversion promise to the caller: serialization that
+    // renders the DOM (export/print) must await it, or the src rewrite lands
+    // after the exported clone and local images go missing. See the
+    // SyncSourceToSlot doc comment for who awaits and who may not.
+    if (convertImages && slot.filePath) return convertLocalImagesInEditor(slot.editor, slot.filePath)
   }
 
   function toggleSourceMode() {

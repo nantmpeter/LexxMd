@@ -236,10 +236,12 @@ const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
   handleCycleNext, handleCyclePrev,
   // Native print: the system dialog offers "Save as PDF", i.e. selectable
   // text output — the long-term replacement for the bitmap-based export.
-  handlePrint: () => {
+  handlePrint: async () => {
     // Source mode: the CodeMirror buffer is the live copy — push it into the
-    // Tiptap doc before printing, same guard as the export handlers.
-    if (sourceMode.value) syncSourceToSlot(activeFile.value, { convertImages: true })
+    // Tiptap doc before printing, same guard as the export handlers. Awaited
+    // for the same reason: the async image-path rewrite must land before the
+    // print clone is taken, or local images print as dead links.
+    if (sourceMode.value) await syncSourceToSlot(activeFile.value, { convertImages: true })
     window.print()
   },
   openPreferences,

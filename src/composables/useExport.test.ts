@@ -96,4 +96,45 @@ describe('useExport source-mode sync', () => {
     expect(syncSourceToSlot).not.toHaveBeenCalled()
     expect(element.innerHTML).toContain('stale dom')
   })
+
+  it('does not serialize before the sync promise resolves', async () => {
+    // Regression guard: the image-path rewrite inside the real sync is async.
+    // If an exporter stopped awaiting it, the export clone would be taken
+    // with unresolved relative image paths and every local image would be
+    // missing from the exported file.
+    const element = document.createElement('div')
+    const slot: FileSlot = {
+      id: 'slot-1',
+      filePath: null,
+      filename: 'doc.md',
+      dirty: false,
+      editor: {},
+      element,
+      lastSavedContent: '',
+      tempPath: null,
+    }
+    let resolveSync: (() => void) | null = null
+    const syncSourceToSlot = vi.fn(
+      () => new Promise<void>((resolve) => { resolveSync = resolve }),
+    )
+    const api = useExport({
+      activeFile: computed(() => slot),
+      activeFilename: computed(() => 'doc.md'),
+      showToast: vi.fn(),
+      sourceMode: () => true,
+      syncSourceToSlot,
+    })
+
+    let settled = false
+    const done = api.handleExportPDF().then(() => { settled = true })
+
+    // The conversion transaction is still in flight: nothing may serialize yet.
+    expect(exportPDF).not.toHaveBeenCalled()
+    expect(settled).toBe(false)
+
+    resolveSync!()
+    await done
+    expect(exportPDF).toHaveBeenCalledTimes(1)
+    expect(settled).toBe(true)
+  })
 })

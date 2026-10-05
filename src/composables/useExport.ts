@@ -26,9 +26,13 @@ export function useExport(options: UseExportOptions) {
    * every unsaved edit with autosave off). Exports and print serialize the
    * Tiptap pane, so push the buffer in first — the same internal sync
    * handleSave uses (convertImages: true so exported images resolve).
+   *
+   * Awaited by every exporter: the sync's image-path rewrite is async, and
+   * serializing before it lands would export unresolved relative paths
+   * (missing images / skipped embeds).
    */
-  function syncSourceBuffer() {
-    if (sourceMode()) syncSourceToSlot(activeFile.value, { convertImages: true })
+  async function syncSourceBuffer() {
+    if (sourceMode()) await syncSourceToSlot(activeFile.value, { convertImages: true })
   }
 
   /**
@@ -50,7 +54,7 @@ export function useExport(options: UseExportOptions) {
   }
 
   async function doExportPDF() {
-    syncSourceBuffer()
+    await syncSourceBuffer()
     const slot = activeFile.value
     if (!slot?.element) return
     try {
@@ -72,7 +76,7 @@ export function useExport(options: UseExportOptions) {
   }
 
   async function doExportDOCX() {
-    syncSourceBuffer()
+    await syncSourceBuffer()
     const slot = activeFile.value
     if (!slot?.element) return
     try {
@@ -99,7 +103,7 @@ export function useExport(options: UseExportOptions) {
   }
 
   async function doExportJPEG() {
-    syncSourceBuffer()
+    await syncSourceBuffer()
     const slot = activeFile.value
     if (!slot?.element) return
     try {

@@ -81,7 +81,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, markRaw } from 'vue'
 import { createEditor } from './editor/index'
-import { createSourceEditor } from './editor/source-editor'
 import { convertLocalImagesInEditor } from './editor/extensions/lexx-image'
 import type { Transaction } from '@tiptap/pm/state'
 import { getSearchState, replaceActiveSearchMatch, replaceAllSearchMatches, updateSearch } from './editor/extensions/search-match'
@@ -98,6 +97,7 @@ import type { FileSlot } from './types'
 import { uniqueUntitledName } from './untitled'
 import { useQuickOpen } from './composables/useQuickOpen'
 import { useAutoSave } from './composables/useAutoSave'
+import { useSourceMode } from './composables/useSourceMode'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -106,9 +106,6 @@ const openFiles = ref<FileSlot[]>([])
 const activeFileId = ref('')
 const toast = ref<{ message: string; type: 'error' | 'success' } | null>(null)
 const updateInfo = ref<{ version: string; downloadAndInstall: () => Promise<void> } | null>(null)
-const sourceMode = ref(false)
-const sourceEditorEl = ref<HTMLElement | null>(null)
-let sourceEditor: ReturnType<typeof createSourceEditor> | null = null
 const searchOpen = ref(false)
 const searchQuery = ref('')
 const replaceQuery = ref('')
@@ -183,12 +180,28 @@ const {
   scheduleAutoSave,
   scheduleAutoSaveForActiveFile,
 } = useAutoSave({
-  sourceMode,
-  getSourceEditor: () => sourceEditor,
   activeFile,
   getMarkdownContent,
+  // Bound after useSourceMode() below; the call itself is deferred until an
+  // autosave actually runs, so the forward reference is safe.
+  syncSourceToSlot: (slot, opts) => sourceModeApi.syncSourceToSlot(slot, opts),
   showToast,
 })
+
+const {
+  sourceMode,
+  sourceEditorEl,
+  getSourceEditor,
+  syncSourceToSlot,
+  toggleSourceMode,
+  destroySourceEditor,
+} = useSourceMode({
+  activeFile,
+  getMarkdownContent,
+  scheduleAutoSave,
+  closeSearch,
+})
+const sourceModeApi = { syncSourceToSlot }
 
 // ── Toast ──────────────────────────────────────────────────
 
@@ -420,17 +433,14 @@ function setSlotElement(id: string, el: HTMLElement | null) {
 }
 
 function switchToFile(id: string) {
-  // If in source mode, save CM content to outgoing slot
-  if (sourceMode.value && sourceEditor && activeFile.value?.editor) {
-    const md = sourceEditor.getContent()
-    // Internal sync, not a user edit: must not mark dirty / reschedule autosave
-    activeFile.value.editor.commands.setContent(md, false)
-    if (activeFile.value.filePath) convertLocalImagesInEditor(activeFile.value.editor, activeFile.value.filePath)
-  }
+  // If in source mode, save CM content to the outgoing slot (internal sync:
+  // must not mark dirty / reschedule autosave; no-op outside source mode)
+  syncSourceToSlot(activeFile.value, { convertImages: true })
 
   activeFileId.value = id
 
   // Load new file's markdown into CM if in source mode
+  const sourceEditor = getSourceEditor()
   if (sourceMode.value && sourceEditor) {
     const slot = openFiles.value.find(f => f.id === id)
     if (slot?.editor) {
@@ -482,12 +492,9 @@ async function handleSave() {
   const slot = activeFile.value
   if (!slot?.editor) return
 
-  // If in source mode, sync CM → PM before saving
-  if (sourceMode.value && sourceEditor) {
-    const md = sourceEditor.getContent()
-    // Internal sync, not a user edit: must not mark dirty / reschedule autosave
-    slot.editor.commands.setContent(md, false)
-  }
+  // If in source mode, sync CM → PM before saving (internal sync: must not
+  // mark dirty / reschedule autosave; no-op outside source mode)
+  syncSourceToSlot(slot, { convertImages: false })
 
   clearAutoSaveTimer(slot)
   const content = getMarkdownContent(slot)
@@ -551,62 +558,6 @@ async function handleClose() {
   const slot = activeFile.value
   if (!slot) return
   await closeFile(slot)
-}
-
-function toggleSourceMode() {
-  if (sourceMode.value) {
-    // Exit source mode: push CM content back to ProseMirror
-    sourceEditor?.view.dom.blur()
-    const slot = activeFile.value
-    const md = sourceEditor?.getContent() ?? null
-    sourceMode.value = false
-    if (slot?.editor) {
-      nextTick(() => {
-        // md is a string from getContent(): an empty string is valid content
-        // (the user cleared the whole document in source mode) and must still
-        // be pushed back to ProseMirror, so only null (no source editor) is
-        // skipped here.
-        if (md !== null) {
-          try {
-            slot.editor.commands.setContent(md, false)
-            if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
-          } catch (e) {
-            console.warn('setContent failed', e)
-          }
-        }
-        slot.editor.commands.focus()
-      })
-    }
-  } else {
-    // Enter source mode: get markdown from ProseMirror
-    const slot = activeFile.value
-    if (!slot?.editor) return
-
-    const md = getMarkdownContent(slot)
-    if (md === null) return
-
-    closeSearch()
-    sourceMode.value = true
-
-    // Lazy-create CodeMirror on first toggle
-    if (!sourceEditor && sourceEditorEl.value) {
-      sourceEditor = createSourceEditor(sourceEditorEl.value, () => {
-        const s = activeFile.value
-        if (s) {
-          s.dirty = true
-          scheduleAutoSave(s)
-        }
-      })
-    }
-
-    if (sourceEditor) {
-      sourceEditor.setContent(md)
-      const { from } = slot.editor.state.selection
-      const text = slot.editor.state.doc.textBetween(0, from, '\n')
-      const line = text.split('\n').length
-      sourceEditor.setCursorLine(line)
-    }
-  }
 }
 
 // ── Export ────────────────────────────────────────────────────
@@ -974,7 +925,7 @@ function onCycleKey(e: KeyboardEvent) {
 onBeforeUnmount(() => {
   clearAllAutoSaveTimers()
   if (unlistenMenu) unlistenMenu()
-  if (sourceEditor) sourceEditor.destroy()
+  destroySourceEditor()
   window.removeEventListener('keydown', onAcceleratorKey)
   window.removeEventListener('keydown', onCycleKey)
   if (toastTimeout) clearTimeout(toastTimeout)

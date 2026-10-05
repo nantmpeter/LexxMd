@@ -1,27 +1,25 @@
-import type { Ref, ComputedRef } from 'vue'
-import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
-import type { createSourceEditor } from '../editor/source-editor'
+import type { ComputedRef } from 'vue'
 import { fileWrite, tempSave } from '../tauri/commands'
 import type { FileSlot } from '../types'
 import type { ToastFn } from './useQuickOpen'
-
-type SourceEditor = ReturnType<typeof createSourceEditor>
+import type { SyncSourceToSlot } from './useSourceMode'
 
 interface UseAutoSaveOptions {
-  /** Whether the source (CodeMirror) mode is currently active. */
-  sourceMode: Ref<boolean>
-  /** The lazily created source editor singleton, if any. */
-  getSourceEditor: () => SourceEditor | null
   /** The currently visible slot; CM→PM sync only applies to it. */
   activeFile: ComputedRef<FileSlot | null>
   getMarkdownContent: (slot: FileSlot) => string | null
+  /**
+   * Pushes CodeMirror content into a slot before serializing (no-op outside
+   * source mode). Internal sync, never marks dirty / reschedules.
+   */
+  syncSourceToSlot: SyncSourceToSlot
   showToast: ToastFn
 }
 
 const AUTO_SAVE_DELAY = 3000
 
 export function useAutoSave(options: UseAutoSaveOptions) {
-  const { sourceMode, getSourceEditor, activeFile, getMarkdownContent, showToast } = options
+  const { activeFile, getMarkdownContent, syncSourceToSlot, showToast } = options
 
   const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -41,13 +39,11 @@ export function useAutoSave(options: UseAutoSaveOptions) {
   async function performAutoSave(slot: FileSlot): Promise<boolean> {
     if (!slot.dirty || !slot.editor) return true
 
-    // If in source mode, sync CM → PM
-    const sourceEditor = getSourceEditor()
-    if (sourceMode.value && sourceEditor && activeFile.value?.id === slot.id) {
-      const md = sourceEditor.getContent()
-      // Internal sync, not a user edit: must not mark dirty / reschedule autosave
-      slot.editor.commands.setContent(md, false)
-      if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
+    // If in source mode, sync CM → PM for the visible slot. The helper is a
+    // no-op outside source mode; the sync itself is internal (emitUpdate=false)
+    // and must not mark dirty / reschedule autosave.
+    if (activeFile.value?.id === slot.id) {
+      syncSourceToSlot(slot, { convertImages: true })
     }
 
     const content = getMarkdownContent(slot)

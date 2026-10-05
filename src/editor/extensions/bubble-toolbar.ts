@@ -114,6 +114,9 @@ function showLinkPopup(editor: any, selectionRect: DOMRect | null) {
   }
 
   input.addEventListener('keydown', (e) => {
+    // IME guard: the Enter that confirms a composition candidate must neither
+    // submit the popup nor cut the composition short (same guard as useShortcuts).
+    if (e.isComposing || e.keyCode === 229) return
     if (e.key === 'Enter') { e.preventDefault(); popup.querySelector<HTMLButtonElement>('.link-popup-ok')!.click() }
     if (e.key === 'Escape') close()
   })

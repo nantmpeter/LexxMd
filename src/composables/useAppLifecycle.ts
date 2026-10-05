@@ -129,6 +129,41 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     })
   }
 
+  // ── External file changes (window focus) ──────────────────
+
+  /**
+   * On every window focus, compare each open saved file against what we last
+   * wrote. Known v1 simplification: this only notifies (once per file per
+   * mismatch episode) — the external version is NOT auto-reloaded; the user
+   * must close and reopen the file to pick it up.
+   */
+  async function checkExternalChanges(): Promise<void> {
+    for (const slot of openFiles.value) {
+      // Dirty slots are protected by the autosave write guard instead; their
+      // toast fires at write time, so don't double-notify here.
+      if (!slot.filePath || slot.dirty || slot.externalChangeNotified) continue
+      try {
+        const onDisk = await fileRead(slot.filePath)
+        if (onDisk !== slot.lastSavedContent) {
+          slot.externalChangeNotified = true
+          showToast(`${slot.filename} changed outside Lexx — close and reopen it to load the external version`)
+        }
+      } catch {
+        // Unreadable (deleted/moved): leave the slot alone; autosave will
+        // surface the write failure on its next run.
+      }
+    }
+  }
+
+  async function registerFocusChangeListener(): Promise<void> {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    const appWindow = getCurrentWindow()
+    await appWindow.onFocusChanged(({ payload: focused }) => {
+      if (!focused) return
+      checkExternalChanges().catch(() => {})
+    })
+  }
+
   return {
     updateInfo,
     checkForUpdate,
@@ -136,5 +171,6 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     checkCrashRecovery,
     registerWindowCloseHandler,
     registerFileOpenListener,
+    registerFocusChangeListener,
   }
 }

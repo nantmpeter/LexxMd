@@ -1,6 +1,6 @@
 import { onBeforeUnmount } from 'vue'
 import type { ComputedRef } from 'vue'
-import { fileWrite, tempSave } from '../tauri/commands'
+import { fileRead, fileWrite, tempSave } from '../tauri/commands'
 import type { FileSlot } from '../types'
 import type { ToastFn } from './useQuickOpen'
 import type { SyncSourceToSlot } from './useSourceMode'
@@ -52,9 +52,19 @@ export function useAutoSave(options: UseAutoSaveOptions) {
 
     try {
       if (slot.filePath) {
+        // External-change guard: if the file on disk no longer matches what
+        // we last saved, another editor modified it. Autosave must never
+        // silently clobber external edits — skip the write and keep the
+        // user's in-editor changes (dirty stays true so nothing is lost).
+        const onDisk = await fileRead(slot.filePath)
+        if (onDisk !== slot.lastSavedContent) {
+          showToast('File changed outside Lexx — reopen to avoid overwriting external edits')
+          return false
+        }
         await fileWrite(slot.filePath, content)
         slot.dirty = false
         slot.lastSavedContent = content
+        slot.externalChangeNotified = false
       } else {
         slot.tempPath = await tempSave(slot.filename, content)
         slot.lastSavedContent = content

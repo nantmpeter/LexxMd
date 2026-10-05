@@ -211,6 +211,7 @@ const {
   checkCrashRecovery,
   registerWindowCloseHandler,
   registerFileOpenListener,
+  registerFocusChangeListener,
 } = useAppLifecycle({
   openFiles,
   workspaceRoot,
@@ -264,6 +265,13 @@ onMounted(async () => {
   // Window close
   try {
     await registerWindowCloseHandler()
+  } catch {
+    // Not running in Tauri
+  }
+
+  // External file-change detection on window focus
+  try {
+    await registerFocusChangeListener()
   } catch {
     // Not running in Tauri
   }

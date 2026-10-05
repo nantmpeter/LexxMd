@@ -11,6 +11,12 @@ export interface FileSlot {
   lastSavedContent: string
   /** Full path of the crash-recovery temp copy returned by tempSave (untitled slots only). */
   tempPath?: string | null
+  /**
+   * Set after the user was told this file differs on disk from
+   * lastSavedContent; suppresses repeat focus toasts until the mismatch
+   * resolves (reopened → fresh slot, or re-saved → flag reset).
+   */
+  externalChangeNotified?: boolean
 }
 
 export type SidebarMode = 'hidden' | 'tree' | 'flat'

@@ -4,7 +4,7 @@ import { createEditor } from '../editor/index'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
 import type { Transaction } from '@tiptap/pm/state'
 import type { createSourceEditor } from '../editor/source-editor'
-import { fileWrite, saveFileDialog, fileRead, openFileDialog, deleteTempFile } from '../tauri/commands'
+import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileRead, openFileDialog, deleteTempFile } from '../tauri/commands'
 import type { FileSlot } from '../types'
 import { uniqueUntitledName } from '../untitled'
 import type { ToastFn } from './useQuickOpen'
@@ -155,6 +155,36 @@ export function useFileSlots(options: UseFileSlotsOptions) {
 
   // ── File operations ────────────────────────────────────────
 
+  /** File-type filter shared by every Markdown save dialog. */
+  const MARKDOWN_SAVE_FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdx'] }]
+
+  /**
+   * Shared tail of every "save to a user-chosen path" flow (untitled first
+   * save and Save As): prompt for a path, write, and re-point the slot at the
+   * new location. Cancel keeps the slot untouched. The window title and the
+   * sidebar pick up the new filename through the existing
+   * `watch(activeFilename)` in useWorkspace — no extra plumbing here.
+   */
+  async function writeSlotToChosenPath(
+    slot: FileSlot,
+    content: string,
+    pickPath: () => Promise<string | null>,
+  ): Promise<void> {
+    const chosenPath = await pickPath()
+    if (!chosenPath) return
+    await fileWrite(chosenPath, content)
+    slot.filePath = chosenPath
+    const parts = chosenPath.split(/[/\\]/)
+    slot.filename = parts[parts.length - 1] || 'Untitled.md'
+    slot.dirty = false
+    slot.lastSavedContent = content
+    slot.externalChangeNotified = false
+    // The document now lives at its real path: drop the crash-recovery
+    // temp copy so the next launch does not offer a stale duplicate.
+    cleanupSlotTemp(slot)
+    showToast('Saved', 'success')
+  }
+
   async function handleSave() {
     const slot = activeFile.value
     if (!slot?.editor) return
@@ -175,21 +205,29 @@ export function useFileSlots(options: UseFileSlotsOptions) {
         slot.externalChangeNotified = false
         showToast('Saved', 'success')
       } else {
-        const chosenPath = await saveFileDialog(slot.filename)
-        if (chosenPath) {
-          await fileWrite(chosenPath, content)
-          slot.filePath = chosenPath
-          const parts = chosenPath.split(/[/\\]/)
-          slot.filename = parts[parts.length - 1] || 'Untitled.md'
-          slot.dirty = false
-          slot.lastSavedContent = content
-          slot.externalChangeNotified = false
-          // The document now lives at its real path: drop the crash-recovery
-          // temp copy so the next launch does not offer a stale duplicate.
-          cleanupSlotTemp(slot)
-          showToast('Saved', 'success')
-        }
+        await writeSlotToChosenPath(slot, content, () => saveFileDialog(slot.filename))
       }
+    } catch (e) {
+      showToast(`Save failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  async function handleSaveAs() {
+    const slot = activeFile.value
+    if (!slot?.editor) return
+
+    // If in source mode, sync CM → PM before saving (internal sync: must not
+    // mark dirty / reschedule autosave; no-op outside source mode)
+    syncSourceToSlot(slot, { convertImages: false })
+
+    clearAutoSaveTimer(slot)
+    const content = getMarkdownContent(slot)
+    if (content === null) return
+
+    try {
+      await writeSlotToChosenPath(slot, content, () =>
+        saveFileDialogWithFilter(slot.filename, MARKDOWN_SAVE_FILTERS),
+      )
     } catch (e) {
       showToast(`Save failed: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -298,6 +336,7 @@ export function useFileSlots(options: UseFileSlotsOptions) {
     switchToFile,
     closeFile,
     handleSave,
+    handleSaveAs,
     handleOpen,
     handleNew,
     handleClose,

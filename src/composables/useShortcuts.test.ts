@@ -10,6 +10,7 @@ function createActions() {
     handleOpenFolder: vi.fn(),
     openQuickOpen: vi.fn(),
     handleSave: vi.fn(),
+    handleSaveAs: vi.fn(),
     openSearch: vi.fn(),
     handleClose: vi.fn(),
     toggleSourceMode: vi.fn(),
@@ -106,5 +107,33 @@ describe('useShortcuts IME composition guard', () => {
     fireKeydown({ key: 'f', metaKey: true, isComposing: false })
 
     expect(actions.openSearch).toHaveBeenCalledTimes(1)
+  })
+
+  it('Cmd+Shift+S triggers Save As', () => {
+    const actions = createActions()
+    wrapper = mountShortcuts(actions)
+
+    const e = fireKeydown({ key: 'S', metaKey: true, shiftKey: true })
+
+    expect(actions.handleSaveAs).toHaveBeenCalledTimes(1)
+    expect(actions.handleSave).not.toHaveBeenCalled()
+    expect(e.defaultPrevented).toBe(true)
+  })
+
+  it('the sa menu event routes to Save As', () => {
+    const actions = createActions()
+    const exposed: { onMenuBarEvent?: (id: string) => void } = {}
+    const Host = defineComponent({
+      setup() {
+        const api = useShortcuts(actions)
+        exposed.onMenuBarEvent = api.onMenuBarEvent
+        return () => h('div')
+      },
+    })
+    wrapper = mount(Host)
+
+    exposed.onMenuBarEvent?.('sa')
+
+    expect(actions.handleSaveAs).toHaveBeenCalledTimes(1)
   })
 })

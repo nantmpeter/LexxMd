@@ -179,7 +179,7 @@ const { handleExportPDF, handleExportDOCX, handleExportJPEG, exporting } = useEx
 
 const {
   createFileSlot, setSlotElement, switchToFile, closeFile,
-  handleSave, handleOpen, handleNew, handleClose,
+  handleSave, handleSaveAs, handleOpen, handleNew, handleClose,
   openFileFromTree, handleCycleNext, handleCyclePrev, confirmDiscardChanges,
 } = useFileSlots({
   openFiles, activeFileId, activeFile, activeIndex, getMarkdownContent, showToast,
@@ -197,7 +197,7 @@ const {
 } = useQuickOpen({ workspaceRoot, showToast, openFileFromTree })
 
 const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
-  handleNew, handleOpen, handleOpenFolder, openQuickOpen, handleSave, openSearch,
+  handleNew, handleOpen, handleOpenFolder, openQuickOpen, handleSave, handleSaveAs, openSearch,
   handleClose, toggleSourceMode,
   handleExportPDF, handleExportDOCX, handleExportJPEG,
   handleCycleNext, handleCyclePrev,

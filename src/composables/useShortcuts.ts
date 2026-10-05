@@ -7,6 +7,7 @@ interface ShortcutActions {
   handleOpenFolder: () => void
   openQuickOpen: () => void
   handleSave: () => void
+  handleSaveAs: () => void
   openSearch: () => void
   handleClose: () => void
   toggleSourceMode: () => void
@@ -30,6 +31,7 @@ export function useShortcuts(actions: ShortcutActions) {
     ff: actions.handleOpenFolder,
     fq: actions.openQuickOpen,
     fs: actions.handleSave,
+    sa: actions.handleSaveAs,
     ef: actions.openSearch,
     fc: actions.handleClose,
     vs: actions.toggleSourceMode,
@@ -73,6 +75,7 @@ export function useShortcuts(actions: ShortcutActions) {
     }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); actions.openQuickOpen() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 's') { e.preventDefault(); actions.handleSave() }
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'S') { e.preventDefault(); actions.handleSaveAs() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'o') { e.preventDefault(); actions.handleOpen() }
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); actions.handleOpenFolder() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') { e.preventDefault(); actions.handleNew() }

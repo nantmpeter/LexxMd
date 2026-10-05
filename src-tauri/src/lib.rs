@@ -109,6 +109,7 @@ pub fn run() {
                     &MenuItem::with_id(app, "ff", "Open Folder...", true, None::<String>)?,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(app, "fs", "Save", true, None::<String>)?,
+                    &MenuItem::with_id(app, "sa", "Save As...", true, Some("CmdOrCtrl+Shift+S"))?,
                     &PredefinedMenuItem::separator(app)?,
                     &Submenu::with_items(app, "Export", true, &[
                         &MenuItem::with_id(app, "ep", "Export as PDF...", true, None::<String>)?,

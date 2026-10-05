@@ -20,12 +20,17 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
   getCurrentWebviewWindow: vi.fn(),
 }))
 
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: vi.fn(),
+}))
+
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   ask: vi.fn(),
 }))
 
 import { fileRead, listTempFiles, deleteTempFile } from '../tauri/commands'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
 import { FixContentParsing } from '../editor/extensions/fix-content-parsing'
@@ -35,9 +40,25 @@ import type { FileSlot } from '../types'
 const mockedFileRead = vi.mocked(fileRead)
 const mockedConvert = vi.mocked(convertLocalImagesInEditor)
 const mockedGetCurrentWebviewWindow = vi.mocked(getCurrentWebviewWindow)
+const mockedGetCurrentWindow = vi.mocked(getCurrentWindow)
 const mockedListTempFiles = vi.mocked(listTempFiles)
 const mockedDeleteTempFile = vi.mocked(deleteTempFile)
 const mockedAsk = vi.mocked(ask)
+
+/**
+ * Register the focus listener and capture its payload callback. Returns a
+ * forwarder so tests only proceed after registerFocusChangeListener resolved
+ * (the real callback replaces the placeholder at registration time).
+ */
+async function captureFocusHandler(): Promise<(state: { payload: boolean }) => void> {
+  const captured: { current: (state: { payload: boolean }) => void } = { current: () => {} }
+  mockedGetCurrentWindow.mockReturnValue({
+    onFocusChanged: vi.fn(async (cb: (state: { payload: boolean }) => void) => {
+      captured.current = cb
+    }),
+  } as never)
+  return (state) => captured.current(state)
+}
 
 function makeSlot(partial: Partial<FileSlot>): FileSlot {
   return {
@@ -502,5 +523,78 @@ describe('checkCrashRecovery window scoping', () => {
 
     expect(mockedFileRead).not.toHaveBeenCalled()
     expect(mockedDeleteTempFile).toHaveBeenCalledWith('/temp/lexx/Draft.md')
+  })
+})
+
+describe('registerFocusChangeListener', () => {
+  beforeEach(() => {
+    mockedGetCurrentWindow.mockReset()
+    mockedFileRead.mockReset()
+  })
+
+  function lifecycleWithReload(reloadPrefs: () => void | Promise<void>) {
+    return useAppLifecycle({
+      openFiles: ref([]),
+      workspaceRoot: ref(null),
+      showToast: vi.fn(),
+      performAutoSave: vi.fn(),
+      clearAllAutoSaveTimers: vi.fn(),
+      confirmDiscardChanges: vi.fn(),
+      createFileSlot: () => makeSlot({}),
+      switchToFile: vi.fn(),
+      isSlotInSourceMode: () => false,
+      reloadPrefs,
+    })
+  }
+
+  it('reloads prefs on focus (lazy cross-window prefs sync)', async () => {
+    const handler = await captureFocusHandler()
+    const reloadPrefs = vi.fn()
+    const { registerFocusChangeListener } = lifecycleWithReload(reloadPrefs)
+    await registerFocusChangeListener()
+
+    await handler({ payload: true })
+
+    expect(reloadPrefs).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reload prefs on blur', async () => {
+    const handler = await captureFocusHandler()
+    const reloadPrefs = vi.fn()
+    const { registerFocusChangeListener } = lifecycleWithReload(reloadPrefs)
+    await registerFocusChangeListener()
+
+    await handler({ payload: false })
+
+    expect(reloadPrefs).not.toHaveBeenCalled()
+  })
+
+  it('still checks external changes when no reloadPrefs is wired', async () => {
+    const handler = await captureFocusHandler()
+    const slot = makeSlot({
+      filePath: '/docs/a.md',
+      lastSavedContent: 'old',
+      editor: makeEditor() as unknown as FileSlot['editor'],
+    })
+    const lifecycle = useAppLifecycle({
+      openFiles: ref([slot]),
+      workspaceRoot: ref(null),
+      showToast: vi.fn(),
+      performAutoSave: vi.fn(),
+      clearAllAutoSaveTimers: vi.fn(),
+      confirmDiscardChanges: vi.fn(),
+      createFileSlot: () => makeSlot({}),
+      switchToFile: vi.fn(),
+      isSlotInSourceMode: () => false,
+    })
+    mockedFileRead.mockResolvedValue('new disk content')
+    await lifecycle.registerFocusChangeListener()
+
+    await handler({ payload: true })
+    // checkExternalChanges is fired without await inside the handler; wait
+    // for its microtask chain to settle before asserting.
+    await vi.waitFor(() => {
+      expect(slot.lastSavedContent).toBe('new disk content')
+    })
   })
 })

@@ -269,6 +269,10 @@ const {
   // of the hidden Tiptap doc would be silently clobbered when the user exits
   // source mode — notify instead and let the normal focus reload pick it up.
   isSlotInSourceMode: (slot) => sourceMode.value && activeFile.value?.id === slot.id,
+  // Cross-window prefs sync: there is no save broadcast, so each window
+  // re-reads prefs.json when it regains focus (safe: focus implies the user
+  // just left another window; re-reading our own writes is a no-op).
+  reloadPrefs: loadPrefs,
 })
 
 const { restoreSession } = useSession({

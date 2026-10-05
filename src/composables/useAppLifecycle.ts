@@ -19,6 +19,11 @@ interface UseAppLifecycleOptions {
   switchToFile: (id: string) => void
   /** True when the slot is currently being edited in the CodeMirror source pane. */
   isSlotInSourceMode: (slot: FileSlot) => boolean
+  /**
+   * Re-reads prefs.json into memory, called on every window focus so changes
+   * saved by another window take effect here (no event broadcast needed).
+   */
+  reloadPrefs?: () => void | Promise<void>
 }
 
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
@@ -32,6 +37,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     createFileSlot,
     switchToFile,
     isSlotInSourceMode,
+    reloadPrefs,
   } = options
 
   // ── Auto-update ─────────────────────────────────────────────
@@ -220,6 +226,11 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     const appWindow = getCurrentWindow()
     await appWindow.onFocusChanged(({ payload: focused }) => {
       if (!focused) return
+      // Prefs are written per window with no broadcast: re-reading the file on
+      // focus is the lazy cross-window sync. Focus implies the user just
+      // switched TO this window, so no in-flight slider drag can race the
+      // reload, and re-reading our own writes is a no-op (same values).
+      if (reloadPrefs) Promise.resolve(reloadPrefs()).catch(() => {})
       checkExternalChanges().catch(() => {})
     })
   }

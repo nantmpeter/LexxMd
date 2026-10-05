@@ -1,0 +1,110 @@
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { defineComponent, h } from 'vue'
+import { useShortcuts } from './useShortcuts'
+
+function createActions() {
+  return {
+    handleNew: vi.fn(),
+    handleOpen: vi.fn(),
+    handleOpenFolder: vi.fn(),
+    openQuickOpen: vi.fn(),
+    handleSave: vi.fn(),
+    openSearch: vi.fn(),
+    handleClose: vi.fn(),
+    toggleSourceMode: vi.fn(),
+    handleExportPDF: vi.fn(),
+    handleExportDOCX: vi.fn(),
+    handleExportJPEG: vi.fn(),
+    handleCycleNext: vi.fn(),
+    handleCyclePrev: vi.fn(),
+    isSourceMode: vi.fn(() => false),
+  }
+}
+
+function mountShortcuts(actions: ReturnType<typeof createActions>) {
+  const Host = defineComponent({
+    setup() {
+      useShortcuts(actions)
+      return () => h('div')
+    },
+  })
+  return mount(Host)
+}
+
+// happy-dom ignores unknown KeyboardEventInit members, so keyCode is patched
+// onto the event afterwards; cancelable must be set for preventDefault().
+function fireKeydown(init: KeyboardEventInit & { keyCode?: number }): KeyboardEvent {
+  const e = new KeyboardEvent('keydown', { ...init, cancelable: true })
+  if (init.keyCode !== undefined) {
+    Object.defineProperty(e, 'keyCode', { value: init.keyCode, configurable: true })
+  }
+  window.dispatchEvent(e)
+  return e
+}
+
+describe('useShortcuts IME composition guard', () => {
+  let wrapper: ReturnType<typeof mount> | null = null
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
+  it('Cmd+F opens search when not composing', () => {
+    const actions = createActions()
+    wrapper = mountShortcuts(actions)
+
+    const e = fireKeydown({ key: 'f', metaKey: true })
+
+    expect(actions.openSearch).toHaveBeenCalledTimes(1)
+    expect(e.defaultPrevented).toBe(true)
+  })
+
+  it('Cmd+F is ignored while composing (isComposing)', () => {
+    const actions = createActions()
+    wrapper = mountShortcuts(actions)
+
+    const e = fireKeydown({ key: 'f', metaKey: true, isComposing: true })
+
+    expect(actions.openSearch).not.toHaveBeenCalled()
+    expect(e.defaultPrevented).toBe(false)
+  })
+
+  it('Cmd+F is ignored for the synthetic IME keyCode 229', () => {
+    const actions = createActions()
+    wrapper = mountShortcuts(actions)
+
+    const e = fireKeydown({ key: 'f', metaKey: true, keyCode: 229 })
+
+    expect(actions.openSearch).not.toHaveBeenCalled()
+    expect(e.defaultPrevented).toBe(false)
+  })
+
+  it('Escape during composition does not exit source mode, and fires after composition ends', () => {
+    const actions = createActions()
+    actions.isSourceMode.mockReturnValue(true)
+    wrapper = mountShortcuts(actions)
+
+    // While composing, Escape dismisses the candidate window and must not
+    // bubble into the source-mode toggle.
+    const composingEscape = fireKeydown({ key: 'Escape', isComposing: true })
+    expect(actions.toggleSourceMode).not.toHaveBeenCalled()
+    expect(composingEscape.defaultPrevented).toBe(false)
+
+    // Composition over: Escape toggles source mode as usual.
+    const plainEscape = fireKeydown({ key: 'Escape' })
+    expect(actions.toggleSourceMode).toHaveBeenCalledTimes(1)
+    expect(plainEscape.defaultPrevented).toBe(true)
+  })
+
+  it('a shortcut typed after composition ends still works', () => {
+    const actions = createActions()
+    wrapper = mountShortcuts(actions)
+
+    fireKeydown({ key: 'f', metaKey: true, isComposing: true })
+    fireKeydown({ key: 'f', metaKey: true, isComposing: false })
+
+    expect(actions.openSearch).toHaveBeenCalledTimes(1)
+  })
+})

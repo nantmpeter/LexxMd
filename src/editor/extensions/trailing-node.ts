@@ -10,12 +10,20 @@ export const TrailingNode = Extension.create({
   name: 'trailingNode',
 
   addProseMirrorPlugins() {
+    const editor = this.editor
     const plugin = new Plugin({
       key: new PluginKey('trailingNode'),
       appendTransaction(transactions, _, state) {
         // Only check if the document was actually modified
         const docChanged = transactions.some(tr => tr.docChanged)
         if (!docChanged) return null
+
+        // The transaction returned here is dispatched by ProseMirror; doing
+        // that while an IME composition is in progress redraws the DOM and
+        // kills the candidate window. Skip now — the final composition
+        // transaction (docChanged, with composing already false) re-enters
+        // this hook, so the paragraph insertion is delayed, never lost.
+        if (editor.view.composing) return null
 
         const { doc, schema } = state
         const lastNode = doc.lastChild

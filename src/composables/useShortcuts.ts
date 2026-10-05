@@ -56,6 +56,13 @@ export function useShortcuts(actions: ShortcutActions) {
   // Keyboard shortcuts + tab cycling, merged into one dispatcher (previously
   // two window listeners with the accelerator branch first).
   function onKeydown(e: KeyboardEvent) {
+    // IME composition in progress: every keystroke is part of the composing
+    // text (keyCode 229 is the synthetic code browsers report for keys
+    // handled by the IME). Acting on them would fire shortcuts from pinyin
+    // keystrokes or from Escape-to-dismiss-candidates (which bubbles up
+    // from the editor even in source mode) and kill the composition.
+    if (e.isComposing || e.keyCode === 229) return
+
     // ── Accelerators ─────────────────────────────────────────
     // (Menu accelerators may not forward to the frontend on all platforms,
     // so they are always registered.)

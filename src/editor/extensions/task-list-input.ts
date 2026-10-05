@@ -13,11 +13,20 @@ export const TaskListInputRule = Extension.create({
   name: 'taskListInputRule',
 
   addInputRules() {
+    const editor = this.editor
     return [
       // Match: `[ ] ` or `[x] ` at start of a bullet list item's text
       new InputRule({
         find: /^\[(\s|x|X)\]\s$/,
         handler: ({ state, range, match, chain }) => {
+          // Input rules run inside the transaction that applies the typed
+          // text, and on some browsers that path is reachable while an IME
+          // composition is flushing DOM changes. Replacing the bullet list
+          // then would redraw the DOM mid-composition and kill the candidate
+          // window, so skip: the literal "[ ] " text stays and can be
+          // re-triggered after the composition ends.
+          if (editor.view.composing) return
+
           const checked = /^(x|X)$/.test(match[1])
           const $pos = state.doc.resolve(range.from)
 

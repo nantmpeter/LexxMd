@@ -6,6 +6,7 @@ import {
   resolveDocxImageSize,
   extractRuns,
   convertStandaloneImage,
+  convertCodeBlock,
   type DocxImageRunData,
 } from './docx'
 
@@ -236,5 +237,48 @@ describe('convertStandaloneImage', () => {
   it('emits nothing for an unmapped img (load already failed and warned)', () => {
     const el = fakeImg({ src: 'asset://localhost/%2FUsers%2Fme%2Fcat.png' })
     expect(convertStandaloneImage(el)).toEqual([])
+  })
+})
+
+describe('convertCodeBlock preserved blocks', () => {
+  /**
+   * Collect the literal text docx stored in a paragraph's runs: docx v9 keeps
+   * strings on own `root` trees (w:t nodes hold them as bare array entries),
+   * so walking `root` for plain strings recovers exactly the run text.
+   */
+  function paraText(p: unknown): string {
+    const out: string[] = []
+    const walk = (n: unknown): void => {
+      if (typeof n === 'string') { out.push(n); return }
+      if (Array.isArray(n)) { for (const child of n) walk(child); return }
+      if (n && typeof n === 'object' && 'root' in (n as Record<string, unknown>)) {
+        walk((n as Record<string, unknown>).root)
+      }
+    }
+    walk((p as { root?: unknown }).root)
+    return out.join('')
+  }
+
+  it('exports a rawHtml preserved block as code lines carrying its text', () => {
+    const container = document.createElement('div')
+    container.innerHTML =
+      '<pre data-raw-html="1" class="preserved-block">&lt;!-- note --&gt;\n&lt;div class="x"&gt;hi&lt;/div&gt;</pre>'
+    const pre = container.querySelector('pre')!
+
+    const paras = convertCodeBlock(pre)
+
+    // One paragraph per source line, each carrying that line's text verbatim.
+    expect(paras).toHaveLength(2)
+    expect(paraText(paras[0])).toBe('<!-- note -->')
+    expect(paraText(paras[1])).toBe('<div class="x">hi</div>')
+  })
+
+  it('skips a frontmatter preserved block entirely', () => {
+    const container = document.createElement('div')
+    container.innerHTML = '<pre data-frontmatter="1" class="preserved-block">title: Doc\ndraft: true</pre>'
+    const pre = container.querySelector('pre')!
+
+    // Document metadata must never leak into the DOCX body.
+    expect(convertCodeBlock(pre)).toEqual([])
   })
 })

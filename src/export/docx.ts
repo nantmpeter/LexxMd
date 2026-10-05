@@ -481,7 +481,12 @@ function convertList(el: Element, ordered: boolean, depth: number = 0, images?: 
   return paragraphs
 }
 
-function convertCodeBlock(el: Element): Paragraph[] {
+export function convertCodeBlock(el: Element): Paragraph[] {
+  // Frontmatter preserved blocks (`pre[data-frontmatter]`) carry document
+  // metadata (title/date/...); writing it into the DOCX body would be wrong —
+  // skip them entirely.
+  if (el.hasAttribute('data-frontmatter')) return []
+
   const code = el.querySelector('code')
   const lang = el.getAttribute('data-language') || ''
   const paragraphs: Paragraph[] = []
@@ -495,23 +500,24 @@ function convertCodeBlock(el: Element): Paragraph[] {
     }))
   }
 
-  // Code content — one paragraph per line with proper breaks
-  if (code) {
-    const lineRuns = extractCodeLineRuns(code)
+  // Code content — one paragraph per line with proper breaks. Preserved
+  // raw-HTML blocks (`pre[data-raw-html]`) hold plain escaped text with no
+  // <code> child: fall back to walking the <pre> itself so the block still
+  // lands in the export as code-styled lines.
+  const source = code ?? (el.hasAttribute('data-raw-html') ? el : null)
+  if (source) {
+    const lineRuns = extractCodeLineRuns(source)
     for (let i = 0; i < lineRuns.length; i++) {
+      const isLast = i === lineRuns.length - 1
       paragraphs.push(new Paragraph({
         children: lineRuns[i],
         shading: { type: 'clear' as any, fill: 'f6f8fa' },
-        spacing: { before: 0, after: 0, line: 240 },
+        // Bottom spacing rides on the last line directly — rebuilding via
+        // `new Paragraph({ ...prev })` drops the runs (docx v9 stores them on
+        // an own `root` the constructor ignores), which silently deleted the
+        // last code line from every export.
+        spacing: { before: 0, after: isLast ? 100 : 0, line: 240 },
       }))
-    }
-    // Add bottom spacing on last line
-    if (paragraphs.length > 0) {
-      const last = paragraphs[paragraphs.length - 1]
-      paragraphs[paragraphs.length - 1] = new Paragraph({
-        ...last,
-        spacing: { before: 0, after: 100, line: 240 },
-      } as any)
     }
   }
 

@@ -24,6 +24,7 @@
       :files="quickOpenFiles"
       :loading="quickOpenLoading"
       :error="quickOpenError"
+      :recents="recentFiles"
       @select="openQuickOpenFile"
       @close="closeQuickOpen"
     />
@@ -102,6 +103,7 @@ import { useWorkspace } from './composables/useWorkspace'
 import { useAppLifecycle } from './composables/useAppLifecycle'
 import { useStartupFiles } from './composables/useStartupFiles'
 import { useSession } from './composables/useSession'
+import { useRecentFiles } from './composables/useRecentFiles'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -178,6 +180,8 @@ const { handleExportPDF, handleExportDOCX, handleExportJPEG, exporting } = useEx
   activeFile, activeFilename, showToast,
 })
 
+const { recentFiles, initRecents, recordRecentFile } = useRecentFiles()
+
 const {
   createFileSlot, setSlotElement, switchToFile, closeFile,
   handleSave, handleSaveAs, handleOpen, handleNew, handleClose,
@@ -190,6 +194,8 @@ const {
   },
   scheduleAutoSave, clearAutoSaveTimer,
   sourceMode, getSourceEditor, syncSourceToSlot,
+  onFileOpened: (path) => { recordRecentFile(path) },
+  onFileSavedToPath: (path) => { recordRecentFile(path) },
 })
 
 const {
@@ -226,6 +232,7 @@ const {
 
 const { restoreSession } = useSession({
   openFiles, activeIndex, createFileSlot, switchToFile,
+  onFileRestored: (path) => { recordRecentFile(path) },
 })
 
 const { openStartupFiles } = useStartupFiles({
@@ -258,6 +265,10 @@ function getMarkdownContent(slot: FileSlot): string | null {
 // ── Lifecycle ──────────────────────────────────────────────
 
 onMounted(async () => {
+  // Recent-files store for Quick Open (fire-and-forget; the panel renders
+  // whatever has loaded by the time it opens).
+  initRecents()
+
   await openStartupFiles()
 
   // ── Menu + file-open events (keyboard shortcuts live in useShortcuts) ──

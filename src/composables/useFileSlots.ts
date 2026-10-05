@@ -29,6 +29,10 @@ interface UseFileSlotsOptions {
   sourceMode: Ref<boolean>
   getSourceEditor: () => SourceEditor | null
   syncSourceToSlot: SyncSourceToSlot
+  /** Called with the path after a file successfully opened (recents feed). */
+  onFileOpened?: (path: string) => void
+  /** Called with the chosen path after a save-to-new-path succeeds (recents feed). */
+  onFileSavedToPath?: (path: string) => void
 }
 
 export function useFileSlots(options: UseFileSlotsOptions) {
@@ -46,6 +50,8 @@ export function useFileSlots(options: UseFileSlotsOptions) {
     sourceMode,
     getSourceEditor,
     syncSourceToSlot,
+    onFileOpened,
+    onFileSavedToPath,
   } = options
 
   let idCounter = 0
@@ -182,6 +188,7 @@ export function useFileSlots(options: UseFileSlotsOptions) {
     // The document now lives at its real path: drop the crash-recovery
     // temp copy so the next launch does not offer a stale duplicate.
     cleanupSlotTemp(slot)
+    onFileSavedToPath?.(chosenPath)
     showToast('Saved', 'success')
   }
 
@@ -250,6 +257,7 @@ export function useFileSlots(options: UseFileSlotsOptions) {
         const fn = parts[parts.length - 1] || 'Untitled.md'
         const slot = createFileSlot(result.content, fn, result.path)
         switchToFile(slot.id)
+        onFileOpened?.(result.path)
       }
     } catch (e) {
       showToast(`Open failed: ${e instanceof Error ? e.message : String(e)}`)
@@ -287,6 +295,7 @@ export function useFileSlots(options: UseFileSlotsOptions) {
       const fn = parts[parts.length - 1] || 'Untitled.md'
       const slot = createFileSlot(content, fn, path)
       switchToFile(slot.id)
+      onFileOpened?.(path)
     } catch (e) {
       showToast(`Failed to open: ${e instanceof Error ? e.message : String(e)}`)
     }

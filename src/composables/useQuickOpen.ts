@@ -24,7 +24,7 @@ interface QuickOpenCacheEntry {
 }
 
 export function useQuickOpen(options: UseQuickOpenOptions) {
-  const { workspaceRoot, showToast, openFileFromTree } = options
+  const { workspaceRoot, openFileFromTree } = options
 
   const quickOpenOpen = ref(false)
   const quickOpenFiles = ref<QuickOpenFile[]>([])
@@ -135,16 +135,16 @@ export function useQuickOpen(options: UseQuickOpenOptions) {
   }
 
   async function openQuickOpen() {
-    if (!workspaceRoot.value) {
-      showToast('Open a folder before using Quick Open')
-      return
-    }
-
+    // Recent files make Quick Open useful without a workspace, so the panel
+    // always opens; the workspace scan only runs when a root is set.
     quickOpenOpen.value = true
     nextTick(() => quickOpenEl.value?.focus())
 
+    const root = workspaceRoot.value
+    if (!root) return
+
     // Refresh in the background if no cached result; cache hit keeps it instant.
-    const cached = quickOpenCache.get(workspaceRoot.value)
+    const cached = quickOpenCache.get(root)
     const fresh = cached && Date.now() - cached.scannedAt < QUICK_OPEN_CACHE_TTL_MS
     if (!fresh) {
       await refreshQuickOpenFiles()

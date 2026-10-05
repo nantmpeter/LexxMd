@@ -81,10 +81,12 @@ interface UseSessionOptions {
   activeIndex: Ref<number>
   createFileSlot: (content?: string, filename?: string | null, filePath?: string | null) => FileSlot
   switchToFile: (id: string) => void
+  /** Called with the path after a session file is restored (recents feed). */
+  onFileRestored?: (path: string) => void
 }
 
 export function useSession(options: UseSessionOptions) {
-  const { openFiles, activeIndex, createFileSlot, switchToFile } = options
+  const { openFiles, activeIndex, createFileSlot, switchToFile, onFileRestored } = options
 
   let writeTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -127,6 +129,7 @@ export function useSession(options: UseSessionOptions) {
         const fn = parts[parts.length - 1] || 'Untitled.md'
         const slot = createFileSlot(content, fn, entry.path)
         slotIdByIndex.set(i, slot.id)
+        onFileRestored?.(entry.path)
       } catch {
         // Deleted or unreadable since the last run: skip silently.
       }

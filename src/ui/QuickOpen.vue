@@ -18,20 +18,23 @@
       <div class="quick-open-list">
         <div v-if="loading" class="quick-open-empty">Scanning...</div>
         <div v-else-if="error" class="quick-open-empty">{{ error }}</div>
-        <div v-else-if="filteredFiles.length === 0" class="quick-open-empty">No files</div>
-        <button
-          v-for="(file, index) in filteredFiles"
-          v-else
-          :key="file.path"
-          type="button"
-          class="quick-open-item"
-          :class="{ active: index === activeIndex }"
-          @mouseenter="activeIndex = index"
-          @click="$emit('select', file)"
-        >
-          <span class="quick-open-name">{{ file.name }}</span>
-          <span class="quick-open-path">{{ file.relativePath }}</span>
-        </button>
+        <div v-else-if="rows.length === 0" class="quick-open-empty">No files</div>
+        <template v-else>
+          <template v-for="row in displayRows" :key="row.kind === 'file' ? row.file.path : row.label">
+            <div v-if="row.kind === 'header'" class="quick-open-group">{{ row.label }}</div>
+            <button
+              v-else
+              type="button"
+              class="quick-open-item"
+              :class="{ active: row.index === activeIndex }"
+              @mouseenter="activeIndex = row.index"
+              @click="$emit('select', row.file)"
+            >
+              <span class="quick-open-name">{{ row.file.name }}</span>
+              <span class="quick-open-path">{{ row.file.relativePath }}</span>
+            </button>
+          </template>
+        </template>
       </div>
     </div>
   </div>
@@ -45,6 +48,8 @@ const props = defineProps<{
   files: QuickOpenFile[]
   loading: boolean
   error: string
+  /** Recently opened/saved files, newest first; shown above `files` on an empty query. */
+  recents?: QuickOpenFile[]
 }>()
 
 const emit = defineEmits<{
@@ -72,6 +77,34 @@ const filteredFiles = computed(() => {
     .slice(0, 50)
 })
 
+// Empty query: recent files first, then workspace files not already listed,
+// capped at the same 50 rows a filtered search returns. A typed query
+// searches the workspace files only.
+const rows = computed<QuickOpenFile[]>(() => {
+  const recent = query.value.trim() ? [] : (props.recents ?? [])
+  if (recent.length === 0) return filteredFiles.value
+  const seen = new Set(recent.map(f => f.path))
+  const rest = props.files.filter(file => !seen.has(file.path))
+  return [...recent, ...rest].slice(0, 50)
+})
+
+type Row =
+  | { kind: 'header'; label: string }
+  | { kind: 'file'; file: QuickOpenFile; index: number }
+
+// Flat render model that interleaves the group headers with the rows while
+// keeping selection indices stable over `rows`.
+const displayRows = computed<Row[]>(() => {
+  const recent = query.value.trim() ? [] : (props.recents ?? [])
+  const out: Row[] = []
+  if (recent.length > 0) out.push({ kind: 'header', label: 'Recent' })
+  rows.value.forEach((file, index) => {
+    if (recent.length > 0 && index === recent.length) out.push({ kind: 'header', label: 'Files' })
+    out.push({ kind: 'file', file, index })
+  })
+  return out
+})
+
 function scoreFile(file: QuickOpenFile, q: string): number {
   const name = file.name.toLocaleLowerCase()
   const relativePath = file.relativePath.toLocaleLowerCase()
@@ -91,13 +124,13 @@ function onInput(event: Event) {
 }
 
 function moveSelection(delta: number) {
-  const count = filteredFiles.value.length
+  const count = rows.value.length
   if (count === 0) return
   activeIndex.value = (activeIndex.value + delta + count) % count
 }
 
 function openSelected() {
-  const file = filteredFiles.value[activeIndex.value]
+  const file = rows.value[activeIndex.value]
   if (file) emit('select', file)
 }
 
@@ -158,6 +191,15 @@ defineExpose({ focus })
   padding: 16px 12px;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.quick-open-group {
+  padding: 8px 10px 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .quick-open-item {

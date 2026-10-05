@@ -60,12 +60,19 @@ function escapeHtml(str: string): string {
 
 /**
  * Convert ArrayBuffer to base64 string.
+ *
+ * Bytes are converted in 0x8000-byte chunks: appending one
+ * String.fromCharCode per byte made the intermediate binary string
+ * O(n) appends on multi-megabyte images/docx payloads, which dominated
+ * export time and could hit engine string-length limits. 0x8000 is the
+ * widely-used safe argument count for Function.prototype.apply.
  */
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
+  const CHUNK_SIZE = 0x8000
   let binary = ''
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i])
+  for (let i = 0; i < bytes.byteLength; i += CHUNK_SIZE) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK_SIZE) as unknown as number[])
   }
   return btoa(binary)
 }

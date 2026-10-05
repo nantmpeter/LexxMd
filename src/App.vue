@@ -885,15 +885,21 @@ async function handleOpenFolder() {
 }
 
 async function openFileFromTree(path: string) {
-  // Check if already open
-  const existing = openFiles.value.find(f => f.filePath === path)
-  if (existing) {
-    switchToFile(existing.id)
-    return
-  }
-
   try {
     const content = await fileRead(path)
+    // Dedup must sit AFTER the await: `fileRead` is async, so a check placed
+    // before it lets two rapid activations of the same file (double-click on
+    // a tree node) both pass and each create its own slot — the double-open
+    // race. Re-checking here, immediately before createFileSlot, makes the
+    // second call reuse the slot the first one just created.
+    // (Smoke-tested only: mounting App.vue in vitest would require mocking
+    // the whole Tauri layer.)
+    const existing = openFiles.value.find(f => f.filePath === path)
+    if (existing) {
+      switchToFile(existing.id)
+      return
+    }
+
     const parts = path.split(/[/\\]/)
     const fn = parts[parts.length - 1] || 'Untitled.md'
     const slot = createFileSlot(content, fn, path)

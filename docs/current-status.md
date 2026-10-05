@@ -78,6 +78,10 @@ Commands run on 2026-06-11:
 - AI-related Rust command code exists in the working tree, but it is not wired into the Tauri invoke handler in the current inspected app path; treat AI as experimental or not yet productized unless integration is completed.
 - Bundle size is large after production build, mainly due to editor/export/rich-rendering dependencies. Vite reports chunks over 500 kB.
 
+## Security Posture
+
+Accepted risk (recorded 2026-10-05): the Tauri `assetProtocol` scope stays `"**"` because opening arbitrary files/folders from anywhere on disk is a core editor capability; narrowing it would break the product. Mitigations around that entry point: KaTeX math blocks render with `trust: false` (no `\href`/`\includegraphics`/`\html*` escapes), temp-file commands validate filenames and enforce temp-directory containment, `delete_temp_file` canonicalizes both paths before deletion, and webview devtools are compiled out of release builds. CSP is intentionally unchanged.
+
 ## Source Of Truth
 
 For current behavior, prefer these files over archived planning notes:

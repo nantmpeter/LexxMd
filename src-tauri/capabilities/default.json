@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "dialog:default",
+    "updater:default",
+    "process:allow-restart",
     "core:window:default",
     "core:window:allow-close",
     "core:window:allow-destroy",

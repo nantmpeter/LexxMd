@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "secondary-windows",
+  "description": "Capability for secondary windows (workspace `ws-*` and file `file-*` windows). These windows load the same frontend as the main window, so they need the minimal set it relies on: core IPC defaults, native dialogs, and updater/process access for checkForUpdate/installUpdate. Without this capability they match no capability at all and have no IPC access.",
+  "windows": ["ws-*", "file-*"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "updater:default",
+    "process:allow-restart"
+  ]
+}

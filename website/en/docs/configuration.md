@@ -8,12 +8,13 @@ Lexx is designed to work well out of the box with minimal configuration. Most se
 
 ## Theme
 
-Lexx follows your system's appearance setting:
+Lexx supports three theme modes, set in **Preferences** (⌘, / Ctrl+,):
 
-- **Light mode** — When your OS is in light mode
-- **Dark mode** — When your OS is in dark mode
+- **System** — follows your OS appearance (default)
+- **Light mode**
+- **Dark mode**
 
-The theme switches automatically when you change your system preference. You can also toggle it via the status bar button at the bottom of the editor.
+In System mode, the theme switches automatically when you change your system preference. You can also toggle it via the status bar button at the bottom of the editor.
 
 ## Window Layout
 
@@ -41,15 +42,13 @@ Double-clicking these files in your OS file manager opens them in Lexx.
 
 ## Auto-Save
 
-- Unsaved changes are auto-saved to a temporary file every **3 seconds**
+- Unsaved changes are auto-saved to a temporary file every **3 seconds** (delay adjustable in Preferences)
+- Auto-save can be turned off entirely in **Preferences** (⌘, / Ctrl+,)
 - On next launch, Lexx prompts you to recover any unsaved work
 - Saved files auto-save changes back to the original file
 
 ## Source Mode
 
-Toggle between WYSIWYG and Markdown source editing:
-
-- **macOS**: ⌘⇧S
-- **Windows/Linux**: Ctrl+Shift+S
+Toggle between WYSIWYG and Markdown source editing via **View → Toggle Source Mode** or the status bar button. Press **Esc** in source mode to return to visual mode.
 
 Cursor position is preserved across mode switches.

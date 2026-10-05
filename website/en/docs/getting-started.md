@@ -43,6 +43,7 @@ When you open Lexx, you'll see a clean, empty editor. Start typing Markdown dire
 There are several ways to open files:
 
 - **Menu**: File → Open (⌘O / Ctrl+O)
+- **Quick Open**: ⌘P / Ctrl+P, which also lists your recently opened files
 - **Drag & drop**: Drag a `.md` file onto the Lexx dock icon or window
 - **Double-click**: Associate `.md` files with Lexx in your OS settings
 - **Command line**: `lexx path/to/file.md`

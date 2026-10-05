@@ -64,10 +64,17 @@ Active formatting states are highlighted in the toolbar.
 
 Toggle between WYSIWYG and source mode to see raw Markdown:
 
-- **macOS**: View → Toggle Source Mode (⌘⇧S)
-- **Windows/Linux**: View → Toggle Source Mode (Ctrl+Shift+S)
+- **macOS**: View → Toggle Source Mode, or the status bar button
+- **Windows/Linux**: View → Toggle Source Mode, or the status bar button
+- Press **Esc** in source mode to return to visual mode
 
 The source editor is powered by CodeMirror 6 with syntax highlighting, line numbers, and search. Your cursor position is preserved when switching modes.
+
+## Frontmatter And Raw HTML
+
+- A YAML front matter block (`---` ... `---`) at the top of the file is kept verbatim as an editable plain-text block instead of being mangled into headings or separators.
+- Block-level raw HTML (`<!-- comments -->`, `<details>`, `<div>`, ...) is preserved verbatim and never executed or rendered as markup.
+- Inline HTML inside paragraphs is not preserved verbatim across edits.
 
 ## Links
 

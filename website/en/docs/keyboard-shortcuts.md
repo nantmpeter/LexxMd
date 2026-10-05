@@ -10,35 +10,40 @@ title: Keyboard Shortcuts
 |----------|-------|---------------|--------|
 | New | ⌘N | Ctrl+N | New untitled file |
 | Open | ⌘O | Ctrl+O | Open file dialog |
-| Quick Open | ⌘P | Ctrl+P | Quick open workspace file |
+| Open Folder | ⌘⇧O | Ctrl+Shift+O | Open folder as workspace |
+| Quick Open | ⌘P | Ctrl+P | Quick open workspace and recent files |
 | Save | ⌘S | Ctrl+S | Save current file |
+| Save As | ⌘⇧S | Ctrl+Shift+S | Save current file to a new path |
+| Print | ⌘⌥P | Ctrl+Alt+P | Print via the system dialog |
+| Preferences | ⌘, | Ctrl+, | Open preferences |
 | Close | ⌘W | Ctrl+W | Close current tab |
 | | ⌘⇧] | Ctrl+Shift+] | Next tab |
 | | ⌘⇧[ | Ctrl+Shift+[ | Previous tab |
 
 ## Export
 
-| Shortcut | macOS | Windows/Linux | Action |
-|----------|-------|---------------|--------|
-| PDF | ⌘⇧P | Ctrl+Shift+P | Export as PDF |
-| DOCX | ⌘⇧D | Ctrl+Shift+D | Export as DOCX |
-| JPEG | ⌘⇧J | Ctrl+Shift+J | Export as JPEG |
+Exports have no keyboard shortcuts — use the **File** menu:
+
+- File → Export as PDF...
+- File → Export as DOCX...
+- File → Export as JPEG...
 
 ## Editing
 
 | Shortcut | macOS | Windows/Linux | Action |
 |----------|-------|---------------|--------|
-| Find | ⌘F | Ctrl+F | Find in current document |
+| Find | ⌘F | Ctrl+F | Find in current document (WYSIWYG mode) |
 | Bold | ⌘B | Ctrl+B | Toggle bold |
 | Italic | ⌘I | Ctrl+I | Toggle italic |
-| | ⌘K | Ctrl+K | AI inline edit (on selection) |
 
 ## View
 
 | Shortcut | macOS | Windows/Linux | Action |
 |----------|-------|---------------|--------|
-| Source mode | ⌘⇧S | Ctrl+Shift+S | Toggle source/visual mode |
-| Fullscreen | ⌘⇧F | F11 | Toggle fullscreen |
+| Exit source mode | Esc | Esc | Return to visual mode |
+| Fullscreen | | | View → Toggle Full Screen |
+
+Source mode is toggled from the **View** menu or the status bar button; there is no keyboard shortcut for entering it.
 
 ## Markdown Input Rules
 

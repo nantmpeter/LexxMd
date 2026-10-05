@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import mermaid from 'mermaid'
+import { renderKaTeX } from './mermaid-block'
 
 const COMPLEX_DIAGRAM = `flowchart TD
     P["门户"]
@@ -146,5 +147,49 @@ describe('mermaid rendering', () => {
     const { svg } = await mermaid.render('test-subgraph', diagram)
     expect(svg).toContain('<svg')
     expect(svg).toContain('Sub One')
+  })
+})
+
+describe('KaTeX trust hardening', () => {
+  // The render result is either the HTML or a caught-error string; both must be
+  // free of the dangerous payload, so assert against whichever we got.
+  function renderedHtml(result: { html: string } | { error: string }): string {
+    return 'html' in result ? result.html : result.error
+  }
+
+  it('renders normal math unchanged', () => {
+    const result = renderKaTeX('\\frac{1}{2}', true)
+    expect(result).toHaveProperty('html')
+    expect('html' in result && result.html).toContain('katex')
+  })
+
+  // Note: assertions target actual XSS sinks (href/src attributes, injected
+  // class tokens, anchor/img elements). The MathML <annotation> echoes the raw
+  // TeX source verbatim, so the payload string does appear there as inert data
+  // even when correctly untrusted — it must not be asserted against.
+  it('does not produce a javascript: link from \\href', () => {
+    const result = renderKaTeX('\\href{javascript:alert(1)}{x}', true)
+    const html = renderedHtml(result)
+    // An anchor without href is inert, and "<a" would false-positive on
+    // "<annotation" — assert on the sink attribute itself (covers both the
+    // HTML <a href> and the MathML <mi href> forms).
+    expect(html).not.toContain('href=')
+  })
+
+  it('does not produce a remote img from \\includegraphics', () => {
+    const result = renderKaTeX('\\includegraphics{https://evil.com/x.png}', true)
+    const html = renderedHtml(result)
+    expect(html).not.toContain('<img')
+    expect(html).not.toContain('src=')
+  })
+
+  it('does not inject class attribute from \\htmlClass', () => {
+    const result = renderKaTeX('\\htmlClass{evil}{x}', true)
+    const html = renderedHtml(result)
+    // KaTeX merges the payload into the wrapper span's class list
+    // (`class="enclosing evil"` when trusted); check rendered class tokens.
+    const classTokens = [...html.matchAll(/class="([^"]*)"/g)]
+      .flatMap(m => m[1].split(/\s+/))
+    expect(classTokens).not.toContain('evil')
   })
 })

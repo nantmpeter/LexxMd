@@ -57,12 +57,15 @@ async function renderMermaid(definition: string): Promise<{ svg: string } | { er
 
 // -- KaTeX --
 
-function renderKaTeX(latex: string, displayMode: boolean): { html: string } | { error: string } {
+export function renderKaTeX(latex: string, displayMode: boolean): { html: string } | { error: string } {
   try {
     const html = katex.renderToString(latex, {
       displayMode,
       throwOnError: true,
-      trust: true,
+      // Untrusted content: no \href/\url/\includegraphics/\html* escapes.
+      // KaTeX degrades these to a red command-name placeholder instead of
+      // producing links, remote images, or injected attributes.
+      trust: false,
     })
     return { html }
   } catch (err: any) {

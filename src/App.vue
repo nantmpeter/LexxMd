@@ -86,9 +86,7 @@ import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
 import FindBar from './ui/FindBar.vue'
 import QuickOpen from './ui/QuickOpen.vue'
-import { saveFileDialogWithFilter, fileWriteBinary, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, drainPendingFiles } from './tauri/commands'
-import { exportPDF, exportDOCX, exportJPEG } from './export'
-import { arrayBufferToBase64 } from './export/utils'
+import { listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, drainPendingFiles } from './tauri/commands'
 import type { FileSlot } from './types'
 import { useQuickOpen } from './composables/useQuickOpen'
 import { useAutoSave } from './composables/useAutoSave'
@@ -96,6 +94,7 @@ import { useSourceMode } from './composables/useSourceMode'
 import { useFileSlots } from './composables/useFileSlots'
 import { useShortcuts } from './composables/useShortcuts'
 import { useFindReplace } from './composables/useFindReplace'
+import { useExport } from './composables/useExport'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -196,6 +195,16 @@ const {
   replaceAllMatches,
   onSearchEnter,
 } = searchApi
+
+const {
+  handleExportPDF,
+  handleExportDOCX,
+  handleExportJPEG,
+} = useExport({
+  activeFile,
+  activeFilename,
+  showToast,
+})
 
 const {
   createFileSlot,
@@ -307,71 +316,6 @@ function getMarkdownContent(slot: FileSlot): string | null {
   if (typeof md === 'string') return md
   showToast('Failed to serialize document as Markdown')
   return null
-}
-
-// ── Export ────────────────────────────────────────────────────
-
-async function handleExportPDF() {
-  const slot = activeFile.value
-  if (!slot?.element) return
-  try {
-    const blob = await exportPDF(slot.element, activeFilename.value)
-    const baseName = activeFilename.value.replace(/\.[^.]+$/, '')
-    const chosenPath = await saveFileDialogWithFilter(
-      `${baseName}.pdf`,
-      [{ name: 'PDF Document', extensions: ['pdf'] }]
-    )
-    if (chosenPath) {
-      const buffer = await blob.arrayBuffer()
-      const base64 = arrayBufferToBase64(buffer)
-      await fileWriteBinary(chosenPath, base64)
-      showToast('Exported as PDF', 'success')
-    }
-  } catch (e) {
-    showToast(`PDF export failed: ${e instanceof Error ? e.message : String(e)}`)
-  }
-}
-
-async function handleExportDOCX() {
-  const slot = activeFile.value
-  if (!slot?.element) return
-  try {
-    const blob = await exportDOCX(slot.element)
-    const baseName = activeFilename.value.replace(/\.[^.]+$/, '')
-    const chosenPath = await saveFileDialogWithFilter(
-      `${baseName}.docx`,
-      [{ name: 'Word Document', extensions: ['docx'] }]
-    )
-    if (chosenPath) {
-      const buffer = await blob.arrayBuffer()
-      const base64 = arrayBufferToBase64(buffer)
-      await fileWriteBinary(chosenPath, base64)
-      showToast('Exported as DOCX', 'success')
-    }
-  } catch (e) {
-    showToast(`DOCX export failed: ${e instanceof Error ? e.message : String(e)}`)
-  }
-}
-
-async function handleExportJPEG() {
-  const slot = activeFile.value
-  if (!slot?.element) return
-  try {
-    const blob = await exportJPEG(slot.element)
-    const baseName = activeFilename.value.replace(/\.[^.]+$/, '')
-    const chosenPath = await saveFileDialogWithFilter(
-      `${baseName}.jpg`,
-      [{ name: 'JPEG Image', extensions: ['jpg', 'jpeg'] }]
-    )
-    if (chosenPath) {
-      const buffer = await blob.arrayBuffer()
-      const base64 = arrayBufferToBase64(buffer)
-      await fileWriteBinary(chosenPath, base64)
-      showToast('Exported as JPEG', 'success')
-    }
-  } catch (e) {
-    showToast(`JPEG export failed: ${e instanceof Error ? e.message : String(e)}`)
-  }
 }
 
 // ── Folder / tree ──────────────────────────────────────────

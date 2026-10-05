@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import type { Ref } from 'vue'
 import { listTempFiles, deleteTempFile, fileRead, openFileInNewWindow } from '../tauri/commands'
+import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
 import type { FileSlot } from '../types'
 import type { ToastFn } from './useQuickOpen'
 
@@ -133,21 +134,27 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
 
   /**
    * On every window focus, compare each open saved file against what we last
-   * wrote. Known v1 simplification: this only notifies (once per file per
-   * mismatch episode) — the external version is NOT auto-reloaded; the user
-   * must close and reopen the file to pick it up.
+   * wrote. A clean (non-dirty) saved file whose disk content diverged is
+   * auto-reloaded into its editor: setContent with emitUpdate=false (the
+   * document is identical to disk, so this must not mark the slot dirty),
+   * then the local-image conversion pass runs (the same contract as an
+   * initial open), then the saved-content baseline moves to the disk text.
+   *
+   * Dirty slots are never touched — the user's unsaved edits outrank the
+   * disk version, and their external-change toast already fires at autosave
+   * write time.
    */
   async function checkExternalChanges(): Promise<void> {
     for (const slot of openFiles.value) {
-      // Dirty slots are protected by the autosave write guard instead; their
-      // toast fires at write time, so don't double-notify here.
-      if (!slot.filePath || slot.dirty || slot.externalChangeNotified) continue
+      if (!slot.filePath || slot.dirty) continue
       try {
         const onDisk = await fileRead(slot.filePath)
-        if (onDisk !== slot.lastSavedContent) {
-          slot.externalChangeNotified = true
-          showToast(`${slot.filename} changed outside Lexx — close and reopen it to load the external version`)
-        }
+        if (onDisk === slot.lastSavedContent) continue
+        if (!slot.editor) continue
+        await slot.editor.commands.setContent(onDisk, false)
+        await convertLocalImagesInEditor(slot.editor, slot.filePath)
+        slot.lastSavedContent = onDisk
+        showToast(`Reloaded ${slot.filename} (changed outside Lexx)`)
       } catch {
         // Unreadable (deleted/moved): leave the slot alone; autosave will
         // surface the write failure on its next run.
@@ -169,6 +176,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     checkForUpdate,
     installUpdate,
     checkCrashRecovery,
+    checkExternalChanges,
     registerWindowCloseHandler,
     registerFileOpenListener,
     registerFocusChangeListener,

@@ -57,14 +57,15 @@ pub async fn file_open_dialog(
 }
 
 /// Update the native window title bar text.
+/// The window is injected at runtime by Tauri from the caller's webview (it
+/// does not occupy an invoke-args slot), so every window — `main` as well as
+/// the `ws-*` / `file-*` spawns — retitles itself instead of the write
+/// landing on `main`.
 #[tauri::command]
 pub async fn update_window_title(
-    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     title: String,
 ) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or("main window not found")?;
     window
         .set_title(&title)
         .map_err(|e: tauri::Error| e.to_string())

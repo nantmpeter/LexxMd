@@ -6,6 +6,7 @@
  * text content, and convert the bullet list into a task list.
  */
 import { Extension, InputRule } from '@tiptap/core'
+import { Node as PMNode } from '@tiptap/pm/model'
 import { Selection } from '@tiptap/pm/state'
 
 export const TaskListInputRule = Extension.create({
@@ -41,8 +42,6 @@ export const TaskListInputRule = Extension.create({
 
           if (!taskListType || !taskItemType || !paragraphType) return
 
-          const listItemNode = $pos.node(listItemDepth)
-
           // Use chain to delete matched text then replace the bullet list
           chain()
             .command(({ tr: t }) => {
@@ -50,7 +49,9 @@ export const TaskListInputRule = Extension.create({
               t.delete(range.from, range.to)
 
               // Get remaining content of the list item (after our deletion)
-              // We need to re-resolve since we deleted text
+              // We need to re-resolve since we deleted text. The deletion
+              // happens inside the item's paragraph, so ancestor depths stay
+              // valid.
               const newPos = t.doc.resolve(range.from)
               const updatedListItem = newPos.node(listItemDepth)
               const remainingContent = updatedListItem.content
@@ -62,16 +63,37 @@ export const TaskListInputRule = Extension.create({
                   ? remainingContent
                   : paragraphType.create()
               )
-              const taskList = taskListType.create(null, taskItem)
 
-              // Replace the entire bulletList
+              // Convert every sibling list item into an unchecked task item,
+              // preserving order and each sibling's own content (including
+              // nested lists). Replacing the whole list with a taskList
+              // holding only the current item would destroy the siblings.
+              const bulletList = newPos.node(bulletListDepth)
+              const taskItems: PMNode[] = []
+              let currentOffset = -1
+              let offsetAcc = 0
+              bulletList.forEach(child => {
+                if (child === updatedListItem && currentOffset === -1) {
+                  currentOffset = offsetAcc
+                  taskItems.push(taskItem)
+                } else {
+                  taskItems.push(
+                    taskItemType.create({ checked: false }, child.content)
+                  )
+                }
+                offsetAcc += child.nodeSize
+              })
+
+              const taskList = taskListType.create(null, taskItems)
+
+              // Replace the entire bulletList with the complete taskList
               const from = newPos.before(bulletListDepth)
               const to = newPos.after(bulletListDepth)
               t.replaceWith(from, to, taskList)
 
-              // Place cursor inside the task item's paragraph
-              // taskList(from) > taskItem(from+1) > paragraph(from+2)
-              const paraPos = from + 1 + 1 + 1
+              // Place cursor inside the current task item's paragraph:
+              // taskList(from) > taskItem(from + 1 + currentOffset) > paragraph(+1)
+              const paraPos = from + 1 + currentOffset + 1
               t.setSelection(
                 Selection.near(t.doc.resolve(paraPos))
               )

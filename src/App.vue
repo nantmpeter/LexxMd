@@ -101,6 +101,7 @@ import { useExport } from './composables/useExport'
 import { useWorkspace } from './composables/useWorkspace'
 import { useAppLifecycle } from './composables/useAppLifecycle'
 import { useStartupFiles } from './composables/useStartupFiles'
+import { useSession } from './composables/useSession'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -223,12 +224,17 @@ const {
   switchToFile,
 })
 
+const { restoreSession } = useSession({
+  openFiles, activeIndex, createFileSlot, switchToFile,
+})
+
 const { openStartupFiles } = useStartupFiles({
   workspaceRoot,
   openFiles,
   createFileSlot,
   switchToFile,
   openFileFromTree,
+  restoreSession,
 })
 
 // ── Toast ──────────────────────────────────────────────────

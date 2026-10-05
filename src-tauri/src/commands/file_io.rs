@@ -53,7 +53,14 @@ pub fn file_read_binary(path: String) -> Result<String, String> {
 /// Write Markdown content to disk (atomic: temp file + rename in the target directory).
 #[tauri::command]
 pub fn file_write(path: String, content: String) -> Result<(), String> {
-    atomic_write(PathBuf::from(&path), content.as_bytes()).map_err(|e| e.to_string())
+    let path = PathBuf::from(&path);
+    // Session/recent stores live under the app data dir, which does not exist
+    // on a fresh install. create_dir_all is a no-op for user-chosen save
+    // paths (their parent always exists) and mirrors file_write_binary below.
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    atomic_write(path, content.as_bytes()).map_err(|e| e.to_string())
 }
 
 /// Write binary content (base64-encoded) to a file (atomic).
@@ -231,6 +238,20 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "second");
         fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn file_write_creates_missing_parent_dirs() {
+        // Session/recent stores write into the app data dir, which does not
+        // exist on a fresh install; the write must bootstrap it.
+        let dir = std::env::temp_dir().join("mdeditor_test_mkdir").join("nested");
+        let path = dir.join("session.json");
+
+        file_write(path.to_string_lossy().to_string(), "{}".into()).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{}");
+
+        fs::remove_file(&path).ok();
+        fs::remove_dir(dir.parent().unwrap()).ok();
     }
 
     #[test]

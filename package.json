@@ -7,7 +7,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "tauri dev --features devtools",
     "tauri:build": "tauri build",
     "test": "vitest run",
     "test:watch": "vitest",

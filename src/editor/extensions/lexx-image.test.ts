@@ -133,4 +133,101 @@ describe('convertLocalImagesInEditor', () => {
     expect(after.attrs.src).toBe('mock:///docs/img/a.png')
     expect(after.attrs['data-md-src']).toBe('img/a.png')
   })
+
+  it('decodes percent-encoded srcs before resolving them as file paths', async () => {
+    // markdown-it normalizes destinations on parse: a saved
+    // `![photo](<img/my file.png>)` comes back with src "img/my%20file.png".
+    editor = createTestEditor('<img src="img/my%20file.png" />')
+
+    await convertLocalImagesInEditor(editor, '/docs/file.md')
+
+    const images = findImageNodes(editor)
+    // Resolved as the decoded path (space), not the percent-encoded one.
+    expect(images[0].attrs.src).toBe('mock:///docs/img/my file.png')
+    expect(images[0].attrs['data-md-src']).toBe('img/my file.png')
+  })
+})
+
+describe('image markdown serialization (escaping)', () => {
+  function makeEditor(content: any) {
+    return new Editor({
+      extensions: [
+        Document,
+        Paragraph,
+        Text,
+        LexxImage.configure({ allowBase64: true }),
+        Markdown.configure({ html: true }),
+      ],
+      content,
+    })
+  }
+
+  function serialize(attrs: Record<string, any>): { md: string } {
+    const e = makeEditor({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'image', attrs }] }] })
+    const md = e.storage.markdown.getMarkdown()
+    e.destroy()
+    return { md }
+  }
+
+  function roundTrip(attrs: Record<string, any>): { md: string; parsed: Record<string, any>; reserialized: string } {
+    const { md } = serialize(attrs)
+    const e = makeEditor(md)
+    let parsedAttrs: Record<string, any> = {}
+    e.state.doc.descendants((n) => {
+      if (n.type.name === 'image' && Object.keys(parsedAttrs).length === 0) parsedAttrs = { ...n.attrs }
+    })
+    const reserialized = e.storage.markdown.getMarkdown()
+    e.destroy()
+    return { md, parsed: parsedAttrs, reserialized }
+  }
+
+  it('escapes brackets in alt so the image is not parsed as plain text', () => {
+    // Without escaping, `![a]b](x.png)` is not an image at all — the label
+    // closes early and markdown-it renders the whole thing as literal text.
+    const { md } = serialize({ src: 'img/a.png', alt: 'a]b [c', title: null })
+    expect(md).toBe('![a\\]b \\[c](img/a.png)')
+    // Known limitation (out of scope): markdown-it's renderInlineAsText drops
+    // text_special tokens when computing the alt attribute, so Lexx's own
+    // re-parse loses the brackets. The on-disk markdown itself is valid
+    // CommonMark (cmark-family renderers show alt "a]b [c").
+  })
+
+  it('keeps underscores between word characters unescaped (default serializer strategy)', () => {
+    const { md } = serialize({ src: 'img/a.png', alt: 'snake_case_word', title: null })
+    expect(md).toBe('![snake_case_word](img/a.png)')
+  })
+
+  it('escapes an underscore at the start of alt', () => {
+    const { md } = serialize({ src: 'img/a.png', alt: '_leading', title: null })
+    expect(md).toBe('![\\_leading](img/a.png)')
+  })
+
+  it('wraps a src containing spaces in pointy brackets', () => {
+    const { md } = serialize({ src: 'img/my file.png', alt: 'photo', title: null })
+    expect(md).toBe('![photo](<img/my file.png>)')
+  })
+
+  it('round-trips a src with parentheses through backslash escaping', () => {
+    const { md, parsed, reserialized } = roundTrip({ src: 'img/shot(1).png', alt: 'shot', title: null })
+    expect(md).toBe('![shot](img/shot\\(1\\).png)')
+    expect(parsed.src).toBe('img/shot(1).png')
+    expect(reserialized).toBe(md)
+  })
+
+  it('round-trips a quoted title', () => {
+    const { md, parsed, reserialized } = roundTrip({ src: 'img/a.png', alt: 'pic', title: 'my "quoted" title' })
+    expect(md).toBe('![pic](img/a.png "my \\"quoted\\" title")')
+    expect(parsed.title).toBe('my "quoted" title')
+    expect(reserialized).toBe(md)
+  })
+
+  it('round-trips a src with spaces: parse percent-encodes, decode recovers the path', () => {
+    const { md, parsed, reserialized } = roundTrip({ src: 'img/my file.png', alt: 'photo', title: null })
+    expect(md).toBe('![photo](<img/my file.png>)')
+    // markdown-it normalizes the destination on parse...
+    expect(parsed.src).toBe('img/my%20file.png')
+    // ...decodeURIComponent recovers the path, so the next save is stable.
+    expect(decodeURIComponent(parsed.src)).toBe('img/my file.png')
+    expect(reserialized).toBe('![photo](img/my%20file.png)')
+  })
 })

@@ -76,12 +76,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import SidebarFlatList from './SidebarFlatList.vue'
 import SidebarTree from './SidebarTree.vue'
 import type { FileSlot, SidebarMode } from '../types'
 
-const props = defineProps<{
+defineProps<{
   mode: SidebarMode
   openFiles: FileSlot[]
   activeFileId: string
@@ -100,12 +100,6 @@ const width = ref(200)
 const wideEnough = ref(false)
 const overlayOpen = ref(false)
 const sidebarRoot = ref<HTMLElement | null>(null)
-
-const rootName = computed(() => {
-  if (!props.rootPath) return 'Explorer'
-  const parts = props.rootPath.split(/[/\\]/)
-  return parts[parts.length - 1] || 'Explorer'
-})
 
 function checkVisibility() {
   wideEnough.value = window.innerWidth >= 1100

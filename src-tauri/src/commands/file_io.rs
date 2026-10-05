@@ -18,24 +18,6 @@ pub fn drain_pending_files(app: tauri::AppHandle) -> Vec<String> {
     }
     Vec::new()
 }
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum FileError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("File not found: {0}")]
-    NotFound(String),
-}
-
-impl Serialize for FileError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileContent {

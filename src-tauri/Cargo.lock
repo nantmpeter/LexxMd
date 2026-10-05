@@ -1753,7 +1753,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-process",
  "tauri-plugin-updater",
- "thiserror 1.0.69",
  "urlencoding",
 ]
 

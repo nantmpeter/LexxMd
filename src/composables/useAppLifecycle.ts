@@ -14,6 +14,8 @@ interface UseAppLifecycleOptions {
   confirmDiscardChanges: (message: string) => Promise<boolean>
   createFileSlot: (content?: string, filename?: string | null, filePath?: string | null) => FileSlot
   switchToFile: (id: string) => void
+  /** True when the slot is currently being edited in the CodeMirror source pane. */
+  isSlotInSourceMode: (slot: FileSlot) => boolean
 }
 
 export function useAppLifecycle(options: UseAppLifecycleOptions) {
@@ -26,6 +28,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     confirmDiscardChanges,
     createFileSlot,
     switchToFile,
+    isSlotInSourceMode,
   } = options
 
   // ── Auto-update ─────────────────────────────────────────────
@@ -143,6 +146,13 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
    * Dirty slots are never touched — the user's unsaved edits outrank the
    * disk version, and their external-change toast already fires at autosave
    * write time.
+   *
+   * Slots currently open in the source-mode pane are only notified, never
+   * reloaded: the pane's CodeMirror buffer still holds the pre-reload text,
+   * so writing it back on exit would clobber the fresh disk version — and
+   * re-baselining lastSavedContent here would disable the autosave guard
+   * against exactly that write-back. Leaving the baseline untouched means
+   * the first focus after the slot leaves source mode reloads it normally.
    */
   async function checkExternalChanges(): Promise<void> {
     for (const slot of openFiles.value) {
@@ -150,6 +160,10 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       try {
         const onDisk = await fileRead(slot.filePath)
         if (onDisk === slot.lastSavedContent) continue
+        if (isSlotInSourceMode(slot)) {
+          showToast(`File changed outside Lexx — ${slot.filename} will reload when you leave source mode`)
+          continue
+        }
         if (!slot.editor) continue
         await slot.editor.commands.setContent(onDisk, false)
         await convertLocalImagesInEditor(slot.editor, slot.filePath)

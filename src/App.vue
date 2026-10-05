@@ -256,6 +256,10 @@ const {
   confirmDiscardChanges,
   createFileSlot,
   switchToFile,
+  // Source mode: the CodeMirror pane holds its own buffer, so an auto-reload
+  // of the hidden Tiptap doc would be silently clobbered when the user exits
+  // source mode — notify instead and let the normal focus reload pick it up.
+  isSlotInSourceMode: (slot) => sourceMode.value && activeFile.value?.id === slot.id,
 })
 
 const { restoreSession } = useSession({

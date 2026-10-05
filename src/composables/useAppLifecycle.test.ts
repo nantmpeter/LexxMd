@@ -41,7 +41,7 @@ function makeEditor() {
   }
 }
 
-function setup(openFiles: FileSlot[]) {
+function setup(openFiles: FileSlot[], isSlotInSourceMode: (slot: FileSlot) => boolean = () => false) {
   return useAppLifecycle({
     openFiles: ref(openFiles),
     workspaceRoot: ref(null),
@@ -51,6 +51,7 @@ function setup(openFiles: FileSlot[]) {
     confirmDiscardChanges: vi.fn(),
     createFileSlot: () => makeSlot({}),
     switchToFile: vi.fn(),
+    isSlotInSourceMode,
   })
 }
 
@@ -102,6 +103,7 @@ describe('checkExternalChanges auto-reload', () => {
       confirmDiscardChanges: vi.fn(),
       createFileSlot: () => makeSlot({}),
       switchToFile: vi.fn(),
+      isSlotInSourceMode: () => false,
     })
     mockedFileRead.mockResolvedValue('new')
 
@@ -126,6 +128,74 @@ describe('checkExternalChanges auto-reload', () => {
     expect(editor.commands.setContent).not.toHaveBeenCalled()
     expect(mockedConvert).not.toHaveBeenCalled()
     expect(slot.lastSavedContent).toBe('old content')
+  })
+
+  it('notifies instead of reloading a clean slot open in source mode (baseline untouched)', async () => {
+    const editor = makeEditor()
+    const showToast = vi.fn()
+    const slot = makeSlot({
+      filePath: '/docs/src.md',
+      filename: 'src.md',
+      lastSavedContent: 'old content',
+      editor: editor as unknown as FileSlot['editor'],
+    })
+    const lifecycle = useAppLifecycle({
+      openFiles: ref([slot]),
+      workspaceRoot: ref(null),
+      showToast,
+      performAutoSave: vi.fn(),
+      clearAllAutoSaveTimers: vi.fn(),
+      confirmDiscardChanges: vi.fn(),
+      createFileSlot: () => makeSlot({}),
+      switchToFile: vi.fn(),
+      isSlotInSourceMode: () => true,
+    })
+    mockedFileRead.mockResolvedValue('external content')
+
+    await lifecycle.checkExternalChanges()
+
+    // No reload into the (stale) Tiptap doc and no re-baseline: leaving the
+    // baseline alone keeps the autosave guard armed against the source pane
+    // writing its pre-reload buffer back on exit, and the next focus after
+    // leaving source mode reloads the file normally.
+    expect(editor.commands.setContent).not.toHaveBeenCalled()
+    expect(mockedConvert).not.toHaveBeenCalled()
+    expect(slot.lastSavedContent).toBe('old content')
+    expect(slot.dirty).toBe(false)
+    expect(showToast).toHaveBeenCalledWith(
+      'File changed outside Lexx — src.md will reload when you leave source mode'
+    )
+  })
+
+  it('applies the source-mode predicate per slot, reloading only the others', async () => {
+    const srcEditor = makeEditor()
+    const plainEditor = makeEditor()
+    const inSource = makeSlot({
+      id: 'src-slot',
+      filePath: '/docs/src.md',
+      lastSavedContent: 'old',
+      editor: srcEditor as unknown as FileSlot['editor'],
+    })
+    const regular = makeSlot({
+      id: 'plain-slot',
+      filePath: '/docs/plain.md',
+      lastSavedContent: 'old',
+      editor: plainEditor as unknown as FileSlot['editor'],
+    })
+    const { checkExternalChanges } = setup(
+      [inSource, regular],
+      (slot) => slot.id === 'src-slot'
+    )
+    mockedFileRead.mockImplementation(async (path: string) =>
+      path === '/docs/src.md' ? 'new src' : 'new plain'
+    )
+
+    await checkExternalChanges()
+
+    expect(srcEditor.commands.setContent).not.toHaveBeenCalled()
+    expect(inSource.lastSavedContent).toBe('old')
+    expect(plainEditor.commands.setContent).toHaveBeenCalledWith('new plain', false)
+    expect(regular.lastSavedContent).toBe('new plain')
   })
 
   it('does nothing when the disk content still matches the baseline', async () => {

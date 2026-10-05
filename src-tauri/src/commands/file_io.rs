@@ -74,17 +74,37 @@ pub fn file_write_binary(path: String, content: String) -> Result<(), String> {
     atomic_write(path, &bytes).map_err(|e| e.to_string())
 }
 
-/// Write `bytes` to `target` atomically: write to a `.<name>.tmp` sibling file in
-/// the target's own directory (same volume, so `fs::rename` is an atomic replace),
-/// then rename it over the target. On any failure the original target is left
-/// untouched and the leftover temp file is removed; on success the temp file no
-/// longer exists (it became the target).
+/// Sidecar name for atomic writes: `.{name}.tmp-<pid>-<nanos>-<seq>`. Two
+/// concurrent writers targeting the same file must not share a temp name, or
+/// one writer's rename could promote the other's partial content.
+fn temp_sidecar_name(file_name: &std::ffi::OsStr) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!(
+        ".{}.tmp-{}-{}-{}",
+        file_name.to_string_lossy(),
+        std::process::id(),
+        nanos,
+        seq
+    )
+}
+
+/// Write `bytes` to `target` atomically: write to a `.<name>.tmp-<unique>`
+/// sibling file in the target's own directory (same volume, so `fs::rename`
+/// is an atomic replace), then rename it over the target. On any failure the
+/// original target is left untouched and the leftover temp file is removed;
+/// on success the temp file no longer exists (it became the target).
 fn atomic_write(target: PathBuf, bytes: &[u8]) -> std::io::Result<()> {
     let file_name = target.file_name().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
     })?;
     let parent = target.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let tmp = parent.join(format!(".{}.tmp", file_name.to_string_lossy()));
+    let tmp = parent.join(temp_sidecar_name(file_name));
 
     if let Err(e) = fs::write(&tmp, bytes) {
         let _ = fs::remove_file(&tmp);
@@ -112,6 +132,20 @@ pub fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// True if any atomic-write sidecar (`.{name}.tmp-*`) survives in `dir`.
+    /// The suffix is randomized, so residue detection must scan by prefix —
+    /// a fixed-name existence check would miss every leftover.
+    fn temp_residue_exists(dir: &std::path::Path, name: &str) -> bool {
+        let prefix = format!(".{name}.tmp");
+        match fs::read_dir(dir) {
+            Ok(mut entries) => entries.any(|e| {
+                e.map(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                    .unwrap_or(false)
+            }),
+            Err(_) => false,
+        }
+    }
 
     #[test]
     fn file_read_nonexistent_returns_error() {
@@ -201,7 +235,7 @@ mod tests {
             // The original file must be untouched and no temp residue left.
             assert_eq!(fs::read_to_string(&path).unwrap(), "ORIGINAL");
             assert!(
-                !dir.join(".protected.md.tmp").exists(),
+                !temp_residue_exists(&dir, "protected.md"),
                 "temp file must be removed on failure"
             );
 
@@ -223,7 +257,7 @@ mod tests {
         assert!(result.is_err(), "rename onto a non-empty dir must fail");
 
         assert!(
-            !target_dir.join(".blocked.tmp").exists(),
+            !temp_residue_exists(&dir, "blocked"),
             "temp file must be removed when rename fails"
         );
         assert!(
@@ -245,7 +279,7 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "NEW");
         assert!(
-            !dir.join(".doc.md.tmp").exists(),
+            !temp_residue_exists(&dir, "doc.md"),
             "temp file must not survive a successful write"
         );
 

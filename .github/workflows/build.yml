@@ -121,6 +121,8 @@ jobs:
       # Deploy to Cloudflare Pages
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
+        env:
+          npm_config_yes: true
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

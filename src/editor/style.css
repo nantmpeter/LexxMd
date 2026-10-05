@@ -796,8 +796,22 @@ html, body {
   .source-exit-btn,
   .statusbar,
   .toast { display: none !important; }
-  pre, blockquote, .rich-render-container { page-break-inside: avoid; }
-  h1, h2, h3 { page-break-after: avoid; }
+  /* Pagination quality: keep short blocks intact across page breaks and
+     stop headings from being stranded at the bottom of a page. Modern
+     break-* properties plus the legacy page-break-* aliases; the rich
+     container wraps mermaid diagrams and KaTeX display math. */
+  pre,
+  table,
+  blockquote,
+  li,
+  .rich-render-container {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
 }
 
 .file-nav {

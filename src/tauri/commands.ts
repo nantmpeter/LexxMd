@@ -8,6 +8,15 @@ export async function fileRead(path: string): Promise<string> {
   return invoke<string>('file_read', { path })
 }
 
+/**
+ * Read a file as base64. Used by DOCX export: the packaged webview's
+ * fetch() cannot read asset:// URLs, so local image bytes must be
+ * round-tripped through this command.
+ */
+export async function fileReadBinary(path: string): Promise<string> {
+  return invoke<string>('file_read_binary', { path })
+}
+
 export async function fileWrite(path: string, content: string): Promise<void> {
   return invoke<void>('file_write', { path, content })
 }

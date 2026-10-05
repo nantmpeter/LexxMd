@@ -35,6 +35,21 @@ pub fn file_read(path: String) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
+/// Read a file from disk and return its content base64-encoded.
+/// Used by DOCX export to embed local images: the webview's JS fetch() cannot
+/// read asset:// URLs (they only serve <img>/resource loading), so the export
+/// round-trips image bytes through this command instead.
+#[tauri::command]
+pub fn file_read_binary(path: String) -> Result<String, String> {
+    use base64::Engine;
+    let path = PathBuf::from(&path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", path.display()));
+    }
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 /// Write Markdown content to disk (atomic: temp file + rename in the target directory).
 #[tauri::command]
 pub fn file_write(path: String, content: String) -> Result<(), String> {
@@ -134,6 +149,33 @@ mod tests {
         let result = file_read("/tmp/mdeditor_test_nonexistent_99999.md".into());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("File not found"));
+    }
+
+    #[test]
+    fn file_read_binary_nonexistent_returns_error() {
+        let result = file_read_binary("/tmp/mdeditor_test_binary_nonexistent_99999.png".into());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("File not found"));
+    }
+
+    #[test]
+    fn file_read_binary_roundtrip() {
+        use base64::Engine;
+
+        let dir = std::env::temp_dir().join("mdeditor_test_read_binary");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("image_test.bin");
+        // Non-text bytes on purpose: text files would hide encoding bugs.
+        let bytes: Vec<u8> = (0..=255u8).cycle().take(1024).collect();
+
+        fs::write(&path, &bytes).unwrap();
+        let encoded = file_read_binary(path.to_string_lossy().to_string()).unwrap();
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&encoded)
+            .unwrap();
+        assert_eq!(decoded, bytes);
+
+        fs::remove_file(&path).ok();
     }
 
     #[test]

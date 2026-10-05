@@ -35,15 +35,20 @@ export function sniffImageFormat(bytes: Uint8Array): DocxImageFormat | null {
 
 const DATA_URL_RE = /^data:image\/(png|jpeg|jpg|gif|bmp);base64,([\s\S]*)$/
 
+/** Decode a standard base64 string into raw bytes. */
+function base64ToBytes(b64: string): Uint8Array {
+  const raw = atob(b64)
+  const bytes = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+  return bytes
+}
+
 function decodeDataUrl(src: string): { bytes: Uint8Array; format: DocxImageFormat } | null {
   const m = src.match(DATA_URL_RE)
   if (!m) return null
   try {
-    const raw = atob(m[2])
-    const bytes = new Uint8Array(raw.length)
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
     const format: DocxImageFormat = m[1] === 'png' ? 'png' : m[1] === 'gif' ? 'gif' : m[1] === 'bmp' ? 'bmp' : 'jpg'
-    return { bytes, format }
+    return { bytes: base64ToBytes(m[2]), format }
   } catch {
     return null
   }
@@ -60,18 +65,38 @@ async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
 }
 
 /**
- * Turn an img src into a URL fetch() can read inside the webview. data:/http(s)/
- * asset: URLs (and Tauri's http://asset.localhost form on Windows) pass through;
- * plain filesystem paths go through Tauri's asset protocol. Returns null when
- * the Tauri API is unavailable (plain browser) for a non-URL src.
+ * convertFileSrc() encodes the whole filesystem path into the URL it produces:
+ * `asset://localhost/<encodeURIComponent(path)>` (macOS/Linux) or
+ * `http://asset.localhost/<encodeURIComponent(path)>` (Windows). Reversing it
+ * (slice the prefix, decode) recovers the absolute path for file_read_binary.
+ * Falls back to the raw (still-encoded) remainder if decoding throws.
  */
-async function toFetchableUrl(src: string): Promise<string | null> {
-  if (/^(data|https?|blob):/.test(src) || src.startsWith('asset:') || /:\/\/asset\.localhost\//.test(src)) {
-    return src
+function toLocalPath(src: string): string | null {
+  const m = src.match(/^(?:asset:\/\/localhost\/|(?:https?:)?\/\/asset\.localhost\/)(.+)$/i)
+  if (m) {
+    try {
+      return decodeURIComponent(m[1])
+    } catch {
+      return m[1]
+    }
   }
+  // Unconverted plain filesystem path (dev in a plain browser, or an image
+  // whose conversion was skipped when the document was loaded).
+  if (/^\//.test(src) || /^[A-Za-z]:[\\/]/.test(src)) return src
+  return null
+}
+
+/**
+ * Read local image bytes via the file_read_binary command. JS fetch() cannot
+ * read asset:// URLs in a packaged Tauri build (the asset protocol only serves
+ * <img>/resource loading), which silently dropped every local image from DOCX
+ * exports — the bytes must be round-tripped through Rust instead. Returns null
+ * on any failure so callers can skip the single image without aborting.
+ */
+async function readLocalImageBytes(path: string): Promise<Uint8Array | null> {
   try {
-    const { convertFileSrc } = await import('@tauri-apps/api/core')
-    return convertFileSrc(src)
+    const { fileReadBinary } = await import('../tauri/commands')
+    return base64ToBytes(await fileReadBinary(path))
   } catch {
     return null
   }
@@ -123,8 +148,15 @@ export async function loadDocxImage(img: HTMLImageElement): Promise<DocxImageRun
     bytes = data.bytes
     format = data.format
   } else {
-    const url = await toFetchableUrl(src)
-    if (url) bytes = await fetchImageBytes(url)
+    const localPath = toLocalPath(src)
+    if (localPath) {
+      bytes = await readLocalImageBytes(localPath)
+    } else if (/^(https?|blob):/.test(src)) {
+      // Remote/blob fetch only works in dev. The packaged build's CSP
+      // (connect-src 'self') blocks remote image requests, so they fail and
+      // the image is skipped with a console.warn — a known, accepted limit.
+      bytes = await fetchImageBytes(src)
+    }
   }
   if (!bytes || bytes.length === 0) return null
 

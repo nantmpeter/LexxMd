@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   fileRead,
+  fileReadBinary,
   fileWrite,
   openFileDialog,
   saveFileDialog,
@@ -32,6 +33,20 @@ describe('fileRead', () => {
   it('propagates errors from invoke', async () => {
     mockedInvoke.mockRejectedValue(new Error('File not found'))
     await expect(fileRead('/missing.md')).rejects.toThrow('File not found')
+  })
+})
+
+describe('fileReadBinary', () => {
+  it('calls invoke with correct command and path, returns base64', async () => {
+    mockedInvoke.mockResolvedValue('aGVsbG8=')
+    const result = await fileReadBinary('/path/to/image.png')
+    expect(mockedInvoke).toHaveBeenCalledWith('file_read_binary', { path: '/path/to/image.png' })
+    expect(result).toBe('aGVsbG8=')
+  })
+
+  it('propagates errors from invoke', async () => {
+    mockedInvoke.mockRejectedValue(new Error('File not found'))
+    await expect(fileReadBinary('/missing.png')).rejects.toThrow('File not found')
   })
 })
 

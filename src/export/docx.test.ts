@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ImageRun } from 'docx'
 import {
   sniffImageFormat,
@@ -7,6 +7,15 @@ import {
   extractRuns,
   type DocxImageRunData,
 } from './docx'
+
+// Local image bytes must come through the file_read_binary command (packaged
+// webviews cannot fetch asset:// URLs), so the commands module is mocked here.
+vi.mock('../tauri/commands', () => ({
+  fileReadBinary: vi.fn(),
+}))
+
+import { fileReadBinary } from '../tauri/commands'
+const mockedFileReadBinary = fileReadBinary as unknown as ReturnType<typeof vi.fn>
 
 // 1x1 transparent PNG — only the magic bytes need to be right for these tests.
 const TINY_PNG_BASE64 =
@@ -43,6 +52,12 @@ describe('sniffImageFormat', () => {
 })
 
 describe('loadDocxImage', () => {
+  beforeEach(() => {
+    mockedFileReadBinary.mockReset()
+    // Default: reads fail, so path-based srcs skip instead of resolving.
+    mockedFileReadBinary.mockRejectedValue(new Error('File not found'))
+  })
+
   it('decodes a data: URL into image bytes with the right format', async () => {
     const img = fakeImg({ src: dataUrlPng() })
     const loaded = await loadDocxImage(img)
@@ -58,9 +73,61 @@ describe('loadDocxImage', () => {
 
   it('returns null when src is missing or unreadable, instead of throwing', async () => {
     expect(await loadDocxImage(fakeImg({}))).toBeNull()
-    // A plain path in a non-Tauri test environment cannot be converted/fetched.
+    // A plain path whose read fails is skipped with a warning.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     expect(await loadDocxImage(fakeImg({ src: '/does/not/exist.png' }))).toBeNull()
+    warn.mockRestore()
+  })
+
+  it('loads asset: srcs through fileReadBinary, decoding the path — not through fetch', async () => {
+    mockedFileReadBinary.mockResolvedValue(TINY_PNG_BASE64)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const img = fakeImg({
+      src: 'asset://localhost/%2FUsers%2Fme%2Fdocs%2Fmy%20cat.png',
+      width: 32,
+      height: 16,
+    })
+
+    const loaded = await loadDocxImage(img)
+
+    expect(mockedFileReadBinary).toHaveBeenCalledWith('/Users/me/docs/my cat.png')
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(loaded).not.toBeNull()
+    expect(loaded!.format).toBe('png')
+    fetchSpy.mockRestore()
+  })
+
+  it('decodes the Windows http://asset.localhost/ form into a filesystem path', async () => {
+    mockedFileReadBinary.mockResolvedValue(TINY_PNG_BASE64)
+    const img = fakeImg({
+      src: 'http://asset.localhost/C%3A%5CUsers%5Cme%5Ccat.png',
+      width: 32,
+      height: 16,
+    })
+
+    const loaded = await loadDocxImage(img)
+
+    expect(mockedFileReadBinary).toHaveBeenCalledWith('C:\\Users\\me\\cat.png')
+    expect(loaded).not.toBeNull()
+    expect(loaded!.format).toBe('png')
+  })
+
+  it('passes plain absolute filesystem paths to fileReadBinary as-is', async () => {
+    mockedFileReadBinary.mockResolvedValue(TINY_PNG_BASE64)
+    const img = fakeImg({ src: '/abs/path/pic.png', width: 32, height: 16 })
+
+    const loaded = await loadDocxImage(img)
+
+    expect(mockedFileReadBinary).toHaveBeenCalledWith('/abs/path/pic.png')
+    expect(loaded).not.toBeNull()
+  })
+
+  it('skips an image when the local read fails, keeping the export alive', async () => {
+    mockedFileReadBinary.mockRejectedValue(new Error('File not found'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const img = fakeImg({ src: 'asset://localhost/%2Fmissing%2Fpic.png' })
+
+    expect(await loadDocxImage(img)).toBeNull()
     warn.mockRestore()
   })
 

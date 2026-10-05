@@ -33,6 +33,7 @@ pub fn run() {
         .manage(commands::PendingFiles(std::sync::Mutex::new(Vec::new())))
         .invoke_handler(tauri::generate_handler![
             commands::file_read,
+            commands::file_read_binary,
             commands::file_write,
             commands::file_write_binary,
             commands::get_app_data_dir,

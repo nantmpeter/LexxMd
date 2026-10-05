@@ -4,29 +4,53 @@ pub mod commands;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 
+/// Extract markdown file paths from a list of command-line arguments.
+/// Shared by the Windows startup path and the single-instance callback:
+/// args[0] is the program path; later entries may be files the OS passed in.
+fn argv_md_files(args: &[String]) -> Vec<String> {
+    args.iter()
+        .skip(1)
+        .filter(|arg| {
+            let lower = arg.to_lowercase();
+            lower.ends_with(".md")
+                || lower.ends_with(".markdown")
+                || lower.ends_with(".mdx")
+        })
+        .filter(|arg| std::path::Path::new(arg).exists())
+        .cloned()
+        .collect()
+}
+
 /// Extract file paths from Windows command-line arguments.
 /// When a user double-clicks an associated file, Windows passes the path as
 /// the first argument: `Lexx.exe path\to\file.md`.
 #[cfg(target_os = "windows")]
 fn windows_argv_files() -> Vec<String> {
-    let mut files = Vec::new();
-    // args()[0] is the exe path; subsequent args may be file paths.
-    for arg in std::env::args().skip(1) {
-        let lower = arg.to_lowercase();
-        if lower.ends_with(".md")
-            || lower.ends_with(".markdown")
-            || lower.ends_with(".mdx")
-        {
-            if std::path::Path::new(&arg).exists() {
-                files.push(arg);
-            }
-        }
-    }
-    files
+    argv_md_files(&std::env::args().collect::<Vec<String>>())
 }
 
 pub fn run() {
     tauri::Builder::default()
+        // Single-instance lock must be the FIRST registered plugin (upstream
+        // requirement): a second launch is closed here and relayed to this
+        // process. The callback reuses the existing PendingFiles channel +
+        // `file-open` event so the frontend's regular file-open flow runs.
+        // On macOS double-open normally arrives via RunEvent::Opened below;
+        // registering here too is harmless and covers direct binary launches.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+            for path in argv_md_files(&args) {
+                if let Some(pending) = app.try_state::<commands::PendingFiles>() {
+                    if let Ok(mut buf) = pending.0.lock() {
+                        buf.push(path.clone());
+                    }
+                }
+                // Emit for when the frontend is already listening
+                let _ = app.emit("file-open", &path);
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

@@ -91,12 +91,13 @@ import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
 import FindBar from './ui/FindBar.vue'
 import QuickOpen from './ui/QuickOpen.vue'
-import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, tempSave, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, toggleFullscreen, drainPendingFiles } from './tauri/commands'
+import { fileWrite, saveFileDialog, saveFileDialogWithFilter, fileWriteBinary, openFileDialog, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, toggleFullscreen, drainPendingFiles } from './tauri/commands'
 import { exportPDF, exportDOCX, exportJPEG } from './export'
 import { arrayBufferToBase64 } from './export/utils'
 import type { FileSlot } from './types'
 import { uniqueUntitledName } from './untitled'
 import { useQuickOpen } from './composables/useQuickOpen'
+import { useAutoSave } from './composables/useAutoSave'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -150,8 +151,6 @@ let toastTimeout: ReturnType<typeof setTimeout> | null = null
 let unlistenMenu: any = null
 let idCounter = 0
 const slotElements = new Map<string, HTMLElement>()
-const autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const AUTO_SAVE_DELAY = 3000
 
 // ── Computed accessors ─────────────────────────────────────
 
@@ -176,6 +175,20 @@ const searchCountLabel = computed(() => {
 watch(activeFilename, (fn) => {
   updateWindowTitle(fn).catch(() => { /* not in Tauri */ })
 }, { immediate: true })
+
+const {
+  clearAutoSaveTimer,
+  clearAllAutoSaveTimers,
+  performAutoSave,
+  scheduleAutoSave,
+  scheduleAutoSaveForActiveFile,
+} = useAutoSave({
+  sourceMode,
+  getSourceEditor: () => sourceEditor,
+  activeFile,
+  getMarkdownContent,
+  showToast,
+})
 
 // ── Toast ──────────────────────────────────────────────────
 
@@ -352,64 +365,6 @@ function getMarkdownContent(slot: FileSlot): string | null {
   if (typeof md === 'string') return md
   showToast('Failed to serialize document as Markdown')
   return null
-}
-
-// ── Auto-save ──────────────────────────────────────────────
-
-function clearAutoSaveTimer(slot: FileSlot) {
-  const timer = autoSaveTimers.get(slot.id)
-  if (timer) {
-    clearTimeout(timer)
-    autoSaveTimers.delete(slot.id)
-  }
-}
-
-function clearAllAutoSaveTimers() {
-  for (const timer of autoSaveTimers.values()) clearTimeout(timer)
-  autoSaveTimers.clear()
-}
-
-async function performAutoSave(slot: FileSlot): Promise<boolean> {
-  if (!slot.dirty || !slot.editor) return true
-
-  // If in source mode, sync CM → PM
-  if (sourceMode.value && sourceEditor && activeFile.value?.id === slot.id) {
-    const md = sourceEditor.getContent()
-    // Internal sync, not a user edit: must not mark dirty / reschedule autosave
-    slot.editor.commands.setContent(md, false)
-    if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
-  }
-
-  const content = getMarkdownContent(slot)
-  if (content === null) return false
-
-  try {
-    if (slot.filePath) {
-      await fileWrite(slot.filePath, content)
-      slot.dirty = false
-      slot.lastSavedContent = content
-    } else {
-      slot.tempPath = await tempSave(slot.filename, content)
-      slot.lastSavedContent = content
-    }
-    return true
-  } catch (e) {
-    showToast(`Auto-save failed: ${e instanceof Error ? e.message : String(e)}`)
-    return false
-  }
-}
-
-function scheduleAutoSave(slot: FileSlot) {
-  clearAutoSaveTimer(slot)
-  const timer = setTimeout(() => performAutoSave(slot), AUTO_SAVE_DELAY)
-  autoSaveTimers.set(slot.id, timer)
-}
-
-function scheduleAutoSaveForActiveFile() {
-  const slot = activeFile.value
-  if (!slot) return
-  slot.dirty = true
-  scheduleAutoSave(slot)
 }
 
 // ── Slot management ────────────────────────────────────────

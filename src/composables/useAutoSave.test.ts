@@ -9,6 +9,7 @@ vi.mock('../tauri/commands', () => ({
 
 import { fileRead, fileWrite, tempSave } from '../tauri/commands'
 import { useAutoSave } from './useAutoSave'
+import type { ToastFn } from './useQuickOpen'
 import type { FileSlot } from '../types'
 
 const mockFileRead = vi.mocked(fileRead)
@@ -29,12 +30,12 @@ function createSlot(overrides: Partial<FileSlot> = {}): FileSlot {
   }
 }
 
-function createComposable(slot: FileSlot) {
+function createComposable(slot: FileSlot, showToast: ToastFn = () => {}) {
   return useAutoSave({
     activeFile: computed(() => slot),
     getMarkdownContent: () => 'edited content',
     syncSourceToSlot: () => {},
-    showToast: vi.fn(),
+    showToast,
   })
 }
 
@@ -45,7 +46,8 @@ describe('useAutoSave external-change guard', () => {
 
   it('skips the write and keeps dirty when the file changed on disk since the last save', async () => {
     const slot = createSlot()
-    const { performAutoSave } = createComposable(slot)
+    const showToast = vi.fn<ToastFn>()
+    const { performAutoSave } = createComposable(slot, showToast)
 
     mockFileRead.mockResolvedValue('externally edited content')
 
@@ -53,6 +55,9 @@ describe('useAutoSave external-change guard', () => {
 
     expect(result).toBe(false)
     expect(mockFileWrite).not.toHaveBeenCalled()
+    // The toast must steer the user to Save As: "reopen" would drop the
+    // user's own unsaved changes, so the copy is part of the contract.
+    expect(showToast).toHaveBeenCalledWith('File changed outside Lexx — use Save As to keep both versions')
     // The user's in-editor edits must survive: dirty stays, last saved
     // baseline unchanged, so nothing is silently clobbered.
     expect(slot.dirty).toBe(true)

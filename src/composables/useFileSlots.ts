@@ -206,6 +206,15 @@ export function useFileSlots(options: UseFileSlotsOptions) {
 
     try {
       if (slot.filePath) {
+        // External-change guard (mirrors the autosave guard): if the file on
+        // disk no longer matches what we last saved, another editor modified
+        // it. An explicit save must not silently clobber those edits either —
+        // skip the write and keep dirty so the user's own changes survive.
+        const onDisk = await fileRead(slot.filePath)
+        if (onDisk !== slot.lastSavedContent) {
+          showToast('File changed outside Lexx — use Save As to keep both versions')
+          return
+        }
         await fileWrite(slot.filePath, content)
         slot.dirty = false
         slot.lastSavedContent = content

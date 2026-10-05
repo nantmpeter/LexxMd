@@ -58,7 +58,7 @@ export function useAutoSave(options: UseAutoSaveOptions) {
         // user's in-editor changes (dirty stays true so nothing is lost).
         const onDisk = await fileRead(slot.filePath)
         if (onDisk !== slot.lastSavedContent) {
-          showToast('File changed outside Lexx — reopen to avoid overwriting external edits')
+          showToast('File changed outside Lexx — use Save As to keep both versions')
           return false
         }
         await fileWrite(slot.filePath, content)

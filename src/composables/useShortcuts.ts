@@ -64,7 +64,7 @@ export function useShortcuts(actions: ShortcutActions) {
       e.preventDefault()
       actions.openSearch()
     }
-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'p') { e.preventDefault(); actions.openQuickOpen() }
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); actions.openQuickOpen() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 's') { e.preventDefault(); actions.handleSave() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'o') { e.preventDefault(); actions.handleOpen() }
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); actions.handleOpenFolder() }

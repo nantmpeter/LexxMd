@@ -14,9 +14,11 @@ import { Markdown } from 'tiptap-markdown'
 import { createLowlight, common } from 'lowlight'
 import { MermaidBlockExtension } from './mermaid-block'
 import { FixContentParsing } from './fix-content-parsing'
-import { Frontmatter, RawHtmlBlock } from './preserve-blocks'
+import { Frontmatter, RawHtmlBlock, renderPreservedPre } from './preserve-blocks'
 
 const lowlight = createLowlight(common)
+
+const GUARD = '\u200B'
 
 function createTestEditor() {
   return new Editor({
@@ -44,6 +46,78 @@ function roundTrip(md: string): { editor: Editor; out: string } {
 function firstNode(editor: Editor) {
   return editor.state.doc.firstChild
 }
+
+/** Editor whose initial content goes through tiptap-markdown's onBeforeCreate + core createDocument (the production file-open path, a DOUBLE HTML parse). */
+function createEditorWithInitialContent(md: string): Editor {
+  return new Editor({
+    extensions: [
+      StarterKit.configure({ codeBlock: false }),
+      MermaidBlockExtension.configure({ lowlight, defaultLanguage: 'plaintext' }),
+      Markdown.configure({ html: true, breaks: true, linkify: true }),
+      FixContentParsing,
+      Frontmatter,
+      RawHtmlBlock,
+    ],
+    content: md,
+  })
+}
+
+describe('PreserveBlocks — render guard', () => {
+  let editor: Editor | null = null
+
+  afterEach(() => {
+    editor?.destroy()
+    editor = null
+  })
+
+  it('renders the guard immediately after the <pre> start tag (format lock)', () => {
+    // Same character set as markdown-it's md.utils.escapeHtml.
+    const md = {
+      utils: { escapeHtml: (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') },
+    }
+    expect(renderPreservedPre('data-frontmatter', md, 'title: x\n')).toBe(
+      `<pre data-frontmatter="1">${GUARD}title: x\n</pre>\n`
+    )
+    expect(renderPreservedPre('data-raw-html', md, '<!-- c -->\n')).toBe(
+      `<pre data-raw-html="1">${GUARD}&lt;!-- c --&gt;\n</pre>\n`
+    )
+  })
+
+  it('parses a leading blank line in frontmatter and round-trips it (WebKit regression)', () => {
+    // Before the render guard, HTML's PRE tokenization ate the blank line on
+    // WebKit: `---\n\ntitle: x\n---` came back as `---\ntitle: x\n---`.
+    const md = '---\n\ntitle: x\n---\n\n# Body'
+    const result = roundTrip(md)
+    editor = result.editor
+
+    const fm = firstNode(editor)
+    expect(fm?.type.name).toBe('frontmatter')
+    expect(fm?.textContent).toBe('\ntitle: x')
+    expect(result.out).toBe(md)
+    expect(result.out).not.toContain(GUARD)
+  })
+
+  it('strips the guard on the initial-content path (double HTML parse, no leak)', () => {
+    // The file-open path parses the rendered HTML twice (mdParser.parse
+    // returns innerHTML, then core createDocument re-parses it); the guard
+    // must survive both parses and be stripped exactly once.
+    const md = '---\n\ntitle: x\n---\n\nIntro.'
+    editor = createEditorWithInitialContent(md)
+
+    const fm = firstNode(editor)
+    expect(fm?.type.name).toBe('frontmatter')
+    expect(fm?.textContent).toBe('\ntitle: x')
+    expect(getMarkdown(editor)).toBe(md)
+    expect(getMarkdown(editor)).not.toContain(GUARD)
+  })
+
+  it('keeps documents without preserved blocks unchanged by the guard', () => {
+    const md = '# Title\n\nSome text.'
+    const result = roundTrip(md)
+    editor = result.editor
+    expect(result.out).toBe(md)
+  })
+})
 
 describe('PreserveBlocks — frontmatter', () => {
   let editor: Editor | null = null

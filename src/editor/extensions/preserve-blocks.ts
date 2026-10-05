@@ -17,12 +17,13 @@
  *
  *   markdown-it block rule   → `frontmatter` token
  *   markdown-it renderer     → both token kinds rendered as
- *                              `<pre data-...>escapeHtml(content)</pre>`
+ *                              `<pre data-...>GUARD escapeHtml(content)</pre>`
  *   PM parseDOM (this file)  → `pre[data-frontmatter]` / `pre[data-raw-html]`
  *                              matched with priority 1000 so they win over
  *                              the generic `pre` rule of MermaidBlock
  *                              (codeBlock) — otherwise the content would be
- *                              swallowed into a code block.
+ *                              swallowed into a code block. getContent()
+ *                              removes the GUARD, see RENDER_GUARD below.
  *
  * Serialization writes the text content back verbatim:
  *   frontmatter → `---\n<content>\n---` (trailing blank lines trimmed so the
@@ -32,9 +33,42 @@
  *                  line between blocks, so output matches the input file).
  */
 import { Node } from '@tiptap/core'
+import { Fragment } from '@tiptap/pm/model'
 
 /** Opening/closing delimiter line: exactly `---` (optionally followed by whitespace). */
 const DELIMITER = /^---\s*$/
+
+/**
+ * Guard character emitted right after the `<pre ...>` start tag of preserved
+ * blocks (see renderPreservedPre) and removed again by the parseDOM rule's
+ * getContent (see parsePreservedPre), so the ProseMirror text always equals
+ * the original markdown content.
+ *
+ * Why a guard at all: HTML's PRE tokenization rule drops a single LF
+ * immediately after a `<pre>` start tag, which eats a real leading blank
+ * line in content like `---\n\ntitle: x\n---`. WebKit conforms (the shipped
+ * app lost the line); happy-dom does not (which is why tests stayed green).
+ *
+ * Why ZWSP and not a bare `\n` guard: a bare LF is stripped by the FIRST
+ * spec-conforming parse, and every parse path in this app parses the
+ * rendered HTML at least once, usually twice — tiptap-markdown's
+ * MarkdownParser.parse returns element.innerHTML (parse #1), which
+ * FixContentParsing re-parses via domFromHTML (parse #2), and the
+ * initial-content path feeds the same innerHTML through tiptap core's
+ * createDocument (parse #2). A second spec parse would then consume the
+ * content's own leading LF, and non-conforming parsers would instead keep
+ * the guard as content and corrupt round trips. ZWSP is not LF: no parser
+ * strips it, on any path, after any number of parses — the parse rule
+ * removes exactly the one we emitted. Trade-off: frontmatter content that
+ * genuinely starts with U+200B loses that character (the previous behavior
+ * was lossy for leading whitespace in that spot too).
+ */
+const RENDER_GUARD = '\u200B'
+
+/** Remove exactly one guard character from the start of parsed pre text. */
+function stripRenderGuard(text: string): string {
+  return text.startsWith(RENDER_GUARD) ? text.slice(RENDER_GUARD.length) : text
+}
 
 /**
  * markdown-it parse.setup runs on EVERY MarkdownParser.parse() call with the
@@ -92,8 +126,16 @@ function frontmatterRule(state: any, startLine: number, endLine: number, silent:
   return false
 }
 
-function renderPreservedPre(attr: string, md: any, content: string): string {
-  return `<pre ${attr}="1">${escapeHtml(md, content)}</pre>\n`
+/**
+ * Render a preserved block as inert text inside a `<pre>`. Exported for the
+ * format-lock test: the guard must sit immediately after the start tag.
+ *
+ * The rawHtml branch gets the same guard for uniformity. html_block content
+ * always begins with the tag itself (`<!--`, `<div>`, ...), so it was never
+ * bitten by the leading-LF strip — the guard there is purely defensive.
+ */
+export function renderPreservedPre(attr: string, md: any, content: string): string {
+  return `<pre ${attr}="1">${RENDER_GUARD}${escapeHtml(md, content)}</pre>\n`
 }
 
 function setupMarkdownIt(md: any): void {
@@ -128,6 +170,13 @@ function sharedParseSetup() {
  * Parse rule for both preserved nodes. `priority: 1000` is REQUIRED:
  * MermaidBlock (codeBlock) registers a generic `pre` rule at default
  * priority 50 that would otherwise swallow our pre blocks.
+ *
+ * getContent strips the render guard (see RENDER_GUARD) and replaces child
+ * parsing with the exact text. Doing the strip at rule level (instead of in
+ * FixContentParsing's domFromHTML) covers every path that turns rendered
+ * HTML into a doc: setContent, the initial-content double parse, and the
+ * markdown-paste path — with or without a guard present (clipboard HTML
+ * rendered by renderHTML never carries one, and the strip is a no-op then).
  */
 function parsePreservedPre(tag: string) {
   return [
@@ -135,6 +184,10 @@ function parsePreservedPre(tag: string) {
       tag,
       preserveWhitespace: 'full' as const,
       priority: 1000,
+      getContent: (dom: globalThis.Node, schema: any): Fragment => {
+        const text = stripRenderGuard(dom.textContent ?? '')
+        return text ? Fragment.from(schema.text(text)) : Fragment.empty
+      },
     },
   ]
 }

@@ -22,6 +22,7 @@ function createActions() {
     handlePrint: vi.fn(),
     openPreferences: vi.fn(),
     isSourceMode: vi.fn(() => false),
+    isAnyOverlayOpen: vi.fn(() => false),
   }
 }
 
@@ -99,6 +100,34 @@ describe('useShortcuts IME composition guard', () => {
     const plainEscape = fireKeydown({ key: 'Escape' })
     expect(actions.toggleSourceMode).toHaveBeenCalledTimes(1)
     expect(plainEscape.defaultPrevented).toBe(true)
+  })
+
+  it('Escape with an overlay open does not exit source mode', () => {
+    const actions = createActions()
+    actions.isSourceMode.mockReturnValue(true)
+    actions.isAnyOverlayOpen.mockReturnValue(true)
+    wrapper = mountShortcuts(actions)
+
+    const e = fireKeydown({ key: 'Escape' })
+
+    // The overlay (QuickOpen / Settings / FindBar) closes itself; the
+    // window-level handler must not also toggle source mode.
+    expect(actions.toggleSourceMode).not.toHaveBeenCalled()
+    expect(e.defaultPrevented).toBe(false)
+  })
+
+  it('Escape exits source mode again once the overlay closes', () => {
+    const actions = createActions()
+    actions.isSourceMode.mockReturnValue(true)
+    actions.isAnyOverlayOpen.mockReturnValue(true)
+    wrapper = mountShortcuts(actions)
+
+    fireKeydown({ key: 'Escape' })
+    expect(actions.toggleSourceMode).not.toHaveBeenCalled()
+
+    actions.isAnyOverlayOpen.mockReturnValue(false)
+    fireKeydown({ key: 'Escape' })
+    expect(actions.toggleSourceMode).toHaveBeenCalledTimes(1)
   })
 
   it('a shortcut typed after composition ends still works', () => {

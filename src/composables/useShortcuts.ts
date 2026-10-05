@@ -19,6 +19,8 @@ interface ShortcutActions {
   handlePrint: () => void
   openPreferences: () => void
   isSourceMode: () => boolean
+  /** True while QuickOpen / Settings / FindBar is open: they own Escape. */
+  isAnyOverlayOpen?: () => boolean
 }
 
 // Menu-event ids shared by the native menu (Tauri 'menu-event' listener) and
@@ -94,7 +96,14 @@ export function useShortcuts(actions: ShortcutActions) {
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') { e.preventDefault(); actions.handleNew() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') { e.preventDefault(); actions.handleClose() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === ',') { e.preventDefault(); actions.openPreferences() }
-    if (e.key === 'Escape' && actions.isSourceMode()) { e.preventDefault(); actions.toggleSourceMode() }
+    if (e.key === 'Escape') {
+      // Layered Escape: an open overlay (QuickOpen / Settings / FindBar)
+      // closes itself on Escape; the window-level handler must not also exit
+      // source mode on the same keystroke (double trigger). Overlays can be
+      // open in source mode legally (Cmd+P / Cmd+, are not guarded there).
+      if (actions.isAnyOverlayOpen?.()) return
+      if (actions.isSourceMode()) { e.preventDefault(); actions.toggleSourceMode() }
+    }
 
     // ── Tab cycling ──────────────────────────────────────────
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ']') {

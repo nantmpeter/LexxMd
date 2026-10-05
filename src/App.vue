@@ -244,6 +244,8 @@ const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
   },
   openPreferences,
   isSourceMode: () => sourceMode.value,
+  // Layered Escape: these overlays close themselves; see useShortcuts.
+  isAnyOverlayOpen: () => quickOpenOpen.value || settingsOpen.value || searchOpen.value,
 })
 
 const {

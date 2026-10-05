@@ -119,6 +119,14 @@ export function useFileSlots(options: UseFileSlotsOptions) {
       if (slot?.editor) {
         const md = getMarkdownContent(slot)
         if (md !== null) sourceEditor.setContent(md)
+      } else if (slot) {
+        // A freshly created slot (handleNew / openFileFromTree) has no editor
+        // until the next render mounts it, but lastSavedContent is already the
+        // exact markdown the editor will be created with. Without this
+        // fallback the CM buffer keeps showing the previous file while
+        // activeFile already points at the new slot — edits would then be
+        // written into the wrong document on exiting source mode.
+        sourceEditor.setContent(slot.lastSavedContent)
       }
     }
 

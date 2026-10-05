@@ -202,6 +202,8 @@ const {
 
 const { handleExportPDF, handleExportDOCX, handleExportJPEG, exporting } = useExport({
   activeFile, activeFilename, showToast,
+  sourceMode: () => sourceMode.value,
+  syncSourceToSlot,
 })
 
 const { recentFiles, initRecents, recordRecentFile } = useRecentFiles()
@@ -234,7 +236,12 @@ const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
   handleCycleNext, handleCyclePrev,
   // Native print: the system dialog offers "Save as PDF", i.e. selectable
   // text output — the long-term replacement for the bitmap-based export.
-  handlePrint: () => window.print(),
+  handlePrint: () => {
+    // Source mode: the CodeMirror buffer is the live copy — push it into the
+    // Tiptap doc before printing, same guard as the export handlers.
+    if (sourceMode.value) syncSourceToSlot(activeFile.value, { convertImages: true })
+    window.print()
+  },
   openPreferences,
   isSourceMode: () => sourceMode.value,
 })

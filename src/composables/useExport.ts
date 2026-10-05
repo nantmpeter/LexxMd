@@ -5,15 +5,31 @@ import { arrayBufferToBase64 } from '../export/utils'
 import { saveFileDialogWithFilter, fileWriteBinary } from '../tauri/commands'
 import type { FileSlot } from '../types'
 import type { ToastFn } from './useQuickOpen'
+import type { SyncSourceToSlot } from './useSourceMode'
 
 interface UseExportOptions {
   activeFile: ComputedRef<FileSlot | null>
   activeFilename: ComputedRef<string>
   showToast: ToastFn
+  /** Whether source (CodeMirror) mode is active: exports must sync first. */
+  sourceMode: () => boolean
+  /** Pushes the CodeMirror buffer into the slot's PM editor (no-op outside source mode). */
+  syncSourceToSlot: SyncSourceToSlot
 }
 
 export function useExport(options: UseExportOptions) {
-  const { activeFile, activeFilename, showToast } = options
+  const { activeFile, activeFilename, showToast, sourceMode, syncSourceToSlot } = options
+
+  /**
+   * Source mode: the CodeMirror buffer is the live copy of the document while
+   * the hidden Tiptap doc lags behind (by up to the autosave interval, or by
+   * every unsaved edit with autosave off). Exports and print serialize the
+   * Tiptap pane, so push the buffer in first — the same internal sync
+   * handleSave uses (convertImages: true so exported images resolve).
+   */
+  function syncSourceBuffer() {
+    if (sourceMode()) syncSourceToSlot(activeFile.value, { convertImages: true })
+  }
 
   /**
    * True while any export is running. App.vue renders a full-screen blocking
@@ -34,6 +50,7 @@ export function useExport(options: UseExportOptions) {
   }
 
   async function doExportPDF() {
+    syncSourceBuffer()
     const slot = activeFile.value
     if (!slot?.element) return
     try {
@@ -55,6 +72,7 @@ export function useExport(options: UseExportOptions) {
   }
 
   async function doExportDOCX() {
+    syncSourceBuffer()
     const slot = activeFile.value
     if (!slot?.element) return
     try {
@@ -81,6 +99,7 @@ export function useExport(options: UseExportOptions) {
   }
 
   async function doExportJPEG() {
+    syncSourceBuffer()
     const slot = activeFile.value
     if (!slot?.element) return
     try {

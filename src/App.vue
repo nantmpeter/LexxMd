@@ -254,6 +254,7 @@ const {
   installUpdate,
   checkCrashRecovery,
   registerWindowCloseHandler,
+  registerAppExitListener,
   registerFileOpenListener,
   registerFocusChangeListener,
 } = useAppLifecycle({
@@ -327,6 +328,14 @@ onMounted(async () => {
   // Window close
   try {
     await registerWindowCloseHandler()
+  } catch {
+    // Not running in Tauri
+  }
+
+  // App quit (Cmd+Q / Quit menu): every window saves its own dirty slots
+  // before the backend exits for real.
+  try {
+    await registerAppExitListener()
   } catch {
     // Not running in Tauri
   }

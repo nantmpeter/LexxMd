@@ -10,6 +10,8 @@ vi.mock('../tauri/commands', () => ({
   fileRead: vi.fn(),
   openFileInNewWindow: vi.fn(),
   consumePendingFile: vi.fn(),
+  appExitReady: vi.fn(),
+  appExitCancel: vi.fn(),
 }))
 
 vi.mock('../editor/extensions/lexx-image', () => ({
@@ -28,7 +30,9 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   ask: vi.fn(),
 }))
 
-import { fileRead, listTempFiles, deleteTempFile } from '../tauri/commands'
+import {
+  fileRead, listTempFiles, deleteTempFile, appExitReady, appExitCancel,
+} from '../tauri/commands'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { ask } from '@tauri-apps/plugin-dialog'
@@ -44,6 +48,8 @@ const mockedGetCurrentWindow = vi.mocked(getCurrentWindow)
 const mockedListTempFiles = vi.mocked(listTempFiles)
 const mockedDeleteTempFile = vi.mocked(deleteTempFile)
 const mockedAsk = vi.mocked(ask)
+const mockedAppExitReady = vi.mocked(appExitReady)
+const mockedAppExitCancel = vi.mocked(appExitCancel)
 
 /**
  * Register the focus listener and capture its payload callback. Returns a
@@ -596,5 +602,113 @@ describe('registerFocusChangeListener', () => {
     await vi.waitFor(() => {
       expect(slot.lastSavedContent).toBe('new disk content')
     })
+  })
+})
+
+describe('registerAppExitListener (quit save flow)', () => {
+  beforeEach(() => {
+    mockedGetCurrentWebviewWindow.mockReset()
+    mockedAppExitReady.mockReset()
+    mockedAppExitCancel.mockReset()
+  })
+
+  /** Wire the webviewWindow mock so `listen` captures the app-exit handler. */
+  async function captureAppExitHandler(): Promise<(event: { payload: unknown }) => Promise<void>> {
+    const captured: { current: (event: { payload: unknown }) => Promise<void> } = {
+      current: async () => {},
+    }
+    mockedGetCurrentWebviewWindow.mockReturnValue({
+      label: 'main',
+      listen: vi.fn(async (_event: string, cb: (event: { payload: unknown }) => Promise<void>) => {
+        captured.current = cb
+        return () => {}
+      }),
+    } as never)
+    return (event) => captured.current(event)
+  }
+
+  function lifecycleWith(
+    openFiles: FileSlot[],
+    hooks: {
+      performAutoSave?: (slot: FileSlot) => Promise<boolean>
+      confirmDiscardChanges?: (message: string) => Promise<boolean>
+    } = {}
+  ) {
+    return useAppLifecycle({
+      openFiles: ref(openFiles),
+      workspaceRoot: ref(null),
+      showToast: vi.fn(),
+      performAutoSave: hooks.performAutoSave ?? vi.fn(async () => true),
+      clearAllAutoSaveTimers: vi.fn(),
+      confirmDiscardChanges: hooks.confirmDiscardChanges ?? vi.fn(async () => true),
+      createFileSlot: () => makeSlot({}),
+      switchToFile: vi.fn(),
+      isSlotInSourceMode: () => false,
+    })
+  }
+
+  it('a clean window reports ready immediately (no saves, no prompt)', async () => {
+    const handler = await captureAppExitHandler()
+    const performAutoSave = vi.fn(async () => true)
+    const confirmDiscardChanges = vi.fn(async () => true)
+    const { registerAppExitListener } = lifecycleWith([], { performAutoSave, confirmDiscardChanges })
+    await registerAppExitListener()
+
+    await handler({ payload: null })
+
+    expect(mockedAppExitReady).toHaveBeenCalledTimes(1)
+    expect(mockedAppExitCancel).not.toHaveBeenCalled()
+    expect(performAutoSave).not.toHaveBeenCalled()
+    expect(confirmDiscardChanges).not.toHaveBeenCalled()
+  })
+
+  it('saves every dirty slot and reports ready when all saves succeed', async () => {
+    const handler = await captureAppExitHandler()
+    const slotA = makeSlot({ id: 'a', dirty: true })
+    const slotB = makeSlot({ id: 'b', dirty: true })
+    const performAutoSave = vi.fn(async () => true)
+    const { registerAppExitListener } = lifecycleWith([slotA, slotB], { performAutoSave })
+    await registerAppExitListener()
+
+    await handler({ payload: null })
+
+    expect(performAutoSave).toHaveBeenCalledTimes(2)
+    expect(mockedAppExitReady).toHaveBeenCalledTimes(1)
+    expect(mockedAppExitCancel).not.toHaveBeenCalled()
+  })
+
+  it('a failed save asks for confirmation; declining cancels the quit', async () => {
+    const handler = await captureAppExitHandler()
+    const slot = makeSlot({ id: 'a', filename: 'keep.md', dirty: true })
+    const confirmDiscardChanges = vi.fn(async () => false)
+    const { registerAppExitListener } = lifecycleWith([slot], {
+      performAutoSave: vi.fn(async () => false),
+      confirmDiscardChanges,
+    })
+    await registerAppExitListener()
+
+    await handler({ payload: null })
+
+    expect(confirmDiscardChanges).toHaveBeenCalledWith(
+      'Auto-save failed for "keep.md". Quit anyway and lose unsaved changes?'
+    )
+    expect(mockedAppExitCancel).toHaveBeenCalledTimes(1)
+    expect(mockedAppExitReady).not.toHaveBeenCalled()
+  })
+
+  it('confirming the discard prompt still reports ready', async () => {
+    const handler = await captureAppExitHandler()
+    const slot = makeSlot({ id: 'a', dirty: true })
+    const confirmDiscardChanges = vi.fn(async () => true)
+    const { registerAppExitListener } = lifecycleWith([slot], {
+      performAutoSave: vi.fn(async () => false),
+      confirmDiscardChanges,
+    })
+    await registerAppExitListener()
+
+    await handler({ payload: null })
+
+    expect(mockedAppExitReady).toHaveBeenCalledTimes(1)
+    expect(mockedAppExitCancel).not.toHaveBeenCalled()
   })
 })

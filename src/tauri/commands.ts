@@ -117,3 +117,20 @@ export async function drainPendingFiles(): Promise<string[]> {
 export async function consumePendingFile(path: string): Promise<void> {
   return invoke<void>('consume_pending_file', { path })
 }
+
+// ── App exit (quit save flow) ──────────────────────────────
+
+/**
+ * This window finished its app-exit save flow (nothing dirty / saved / user
+ * confirmed discarding). The backend exits once every expected window has
+ * reported. Custom command → works from every window, unlike plugin `exit()`
+ * which the "main"-only capability does not grant to secondary windows.
+ */
+export async function appExitReady(): Promise<void> {
+  return invoke<void>('app_exit_ready')
+}
+
+/** This window declined to discard unsaved changes: the quit is called off. */
+export async function appExitCancel(): Promise<void> {
+  return invoke<void>('app_exit_cancel')
+}

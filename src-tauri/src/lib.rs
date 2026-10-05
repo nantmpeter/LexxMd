@@ -78,6 +78,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(commands::PendingFiles(std::sync::Mutex::new(Vec::new())))
+        .manage(commands::PendingExitAcks(std::sync::Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             commands::file_read,
             commands::file_read_binary,
@@ -97,6 +98,8 @@ pub fn run() {
             commands::toggle_fullscreen,
             commands::drain_pending_files,
             commands::consume_pending_file,
+            commands::app_exit_ready,
+            commands::app_exit_cancel,
         ])
         .setup(|app| {
             // On Windows, file associations pass the path as a CLI argument.
@@ -127,7 +130,13 @@ pub fn run() {
                     // above Quit, with the Cmd+, accelerator.
                     &MenuItem::with_id(app, "prefs", "Preferences...", true, Some("CmdOrCtrl+,"))?,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::quit(app, None)?,
+                    // Custom Quit item instead of PredefinedMenuItem::quit:
+                    // the predefined item invokes the native `terminate:`
+                    // selector, which bypasses RunEvent entirely (tao installs
+                    // no `applicationShouldTerminate:` veto on macOS), so an
+                    // app quit could never run the unsaved-work save flow.
+                    // This item is routed through begin_app_exit instead.
+                    &MenuItem::with_id(app, "app-quit", "Quit Lexx", true, Some("CmdOrCtrl+Q"))?,
                 ])?;
 
                 let file_menu = Submenu::with_items(app, "File", true, &[
@@ -191,6 +200,10 @@ pub fn run() {
                         let _ = window.set_fullscreen(!fullscreen);
                     }
                 }
+                // Quit goes through the save flow, not straight termination:
+                // hand the exit decision to every window (unsaved buffers are
+                // saved or the user confirms discarding, then we exit).
+                "app-quit" => commands::begin_app_exit(app),
                 _ => {
                     // macOS menus are global: the focused window is the one
                     // the user is working in, so only it must act on the id.
@@ -202,6 +215,22 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             match event {
+                tauri::RunEvent::ExitRequested { code, api, .. } => {
+                    // code: None = user-driven exit request (e.g. the runtime
+                    // noticing the last window closed on Windows/Linux);
+                    // Some(n) = explicit exit()/restart — ours carries the
+                    // save-flow result and must always pass through.
+                    // Hand a user-driven request to the save flow — but only
+                    // when a window is left to run it: the runtime removes
+                    // closed windows BEFORE firing this event, so the
+                    // last-window-close case arrives with an empty registry
+                    // and must exit normally instead of preventing into a
+                    // windowless hang.
+                    if code.is_none() && !app.webview_windows().is_empty() {
+                        api.prevent_exit();
+                        commands::begin_app_exit(app);
+                    }
+                }
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Opened { urls } => {
                     for url in urls {

@@ -3,6 +3,7 @@ import type { Ref } from 'vue'
 import type { CommandProps } from '@tiptap/core'
 import {
   listTempFiles, deleteTempFile, fileRead, openFileInNewWindow, consumePendingFile,
+  appExitReady, appExitCancel,
 } from '../tauri/commands'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
 import type { FileSlot } from '../types'
@@ -107,6 +108,20 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
 
   // ── Window close flow ──────────────────────────────────────
 
+  /**
+   * Save every dirty slot (the same loop for window close and app quit).
+   * Returns true when all dirty slots were saved; false when at least one
+   * save failed and its slot is still dirty.
+   */
+  async function saveAllDirtySlots(dirtySlots: FileSlot[]): Promise<boolean> {
+    let allSaved = true
+    for (const slot of dirtySlots) {
+      const saved = await performAutoSave(slot)
+      if (!saved) allSaved = false
+    }
+    return allSaved
+  }
+
   async function registerWindowCloseHandler(): Promise<void> {
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     const appWindow = getCurrentWindow()
@@ -115,22 +130,54 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       if (dirtySlots.length === 0) return
       event.preventDefault()
       clearAllAutoSaveTimers()
-      let allSaved = true
-      for (const slot of dirtySlots) {
-        const saved = await performAutoSave(slot)
-        if (!saved) allSaved = false
+      if (await saveAllDirtySlots(dirtySlots)) {
+        await appWindow.destroy()
+        return
       }
-      if (!allSaved) {
-        // Auto-save failed for at least one file: never destroy silently,
-        // ask the user to confirm discarding the unsaved changes.
-        const failed = dirtySlots.filter(f => f.dirty)
-        const names = failed.map(f => f.filename).join(', ')
-        const confirmed = await confirmDiscardChanges(
-          `Auto-save failed for "${names}". Close anyway and lose unsaved changes?`
-        )
-        if (!confirmed) return
-      }
+      // Auto-save failed for at least one file: never destroy silently,
+      // ask the user to confirm discarding the unsaved changes.
+      const failed = dirtySlots.filter(f => f.dirty)
+      const names = failed.map(f => f.filename).join(', ')
+      const confirmed = await confirmDiscardChanges(
+        `Auto-save failed for "${names}". Close anyway and lose unsaved changes?`
+      )
+      if (!confirmed) return
       await appWindow.destroy()
+    })
+  }
+
+  // ── App exit flow (Cmd+Q / Quit menu) ──────────────────────
+
+  /**
+   * Quit requests are coordinated by the backend (begin_app_exit): every open
+   * window receives `app-exit`, runs the same save flow as window close, then
+   * reports its result. Only when ALL windows reported ready does the backend
+   * exit for real; any window's decline cancels the quit and the app stays
+   * alive. Plain window close (Cmd+W) is unaffected — that path is above.
+   */
+  async function registerAppExitListener(): Promise<void> {
+    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    await getCurrentWebviewWindow().listen('app-exit', async () => {
+      const dirtySlots = openFiles.value.filter(f => f.dirty)
+      if (dirtySlots.length === 0) {
+        await appExitReady()
+        return
+      }
+      clearAllAutoSaveTimers()
+      if (await saveAllDirtySlots(dirtySlots)) {
+        await appExitReady()
+        return
+      }
+      const failed = dirtySlots.filter(f => f.dirty)
+      const names = failed.map(f => f.filename).join(', ')
+      const confirmed = await confirmDiscardChanges(
+        `Auto-save failed for "${names}". Quit anyway and lose unsaved changes?`
+      )
+      if (!confirmed) {
+        await appExitCancel()
+        return
+      }
+      await appExitReady()
     })
   }
 
@@ -242,6 +289,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     checkCrashRecovery,
     checkExternalChanges,
     registerWindowCloseHandler,
+    registerAppExitListener,
     registerFileOpenListener,
     registerFocusChangeListener,
   }

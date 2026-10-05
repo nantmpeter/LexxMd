@@ -12,8 +12,8 @@
       autocomplete="off"
       spellcheck="false"
       @input="$emit('update:query', ($event.target as HTMLInputElement).value)"
-      @keydown.escape.prevent="$emit('close')"
-      @keydown.enter.prevent="$emit('enter', $event)"
+      @keydown.escape="onFindKeydown($event, 'close')"
+      @keydown.enter="onFindKeydown($event, 'enter')"
     />
     <input
       :value="replace"
@@ -24,7 +24,7 @@
       autocomplete="off"
       spellcheck="false"
       @input="$emit('update:replace', ($event.target as HTMLInputElement).value)"
-      @keydown.escape.prevent="$emit('close')"
+      @keydown.escape="onFindKeydown($event, 'close')"
     />
     <span class="find-count" :class="{ 'is-empty': !countLabel }" aria-live="polite">{{ countLabel }}</span>
     <button type="button" class="find-action-btn" :disabled="disabled" @click="$emit('replace')">Replace</button>
@@ -46,7 +46,9 @@ defineProps<{
   notFound: boolean
 }>()
 
-defineEmits<{
+const inputEl = ref<HTMLInputElement | null>(null)
+
+const emit = defineEmits<{
   'update:query': [value: string]
   'update:replace': [value: string]
   next: []
@@ -57,7 +59,20 @@ defineEmits<{
   enter: [event: KeyboardEvent]
 }>()
 
-const inputEl = ref<HTMLInputElement | null>(null)
+/**
+ * Enter / Escape on the find inputs, with an IME guard: while a composition
+ * is in progress (keyCode 229 is the synthetic code browsers report for
+ * IME-handled keys), Enter confirms the candidate and Escape dismisses it —
+ * neither may jump a match or close the bar. preventDefault moves inside the
+ * handler so composing keystrokes keep their native IME behavior; it still
+ * suppresses the implicit form submission on plain Enter.
+ */
+function onFindKeydown(e: KeyboardEvent, action: 'close' | 'enter') {
+  if (e.isComposing || e.keyCode === 229) return
+  e.preventDefault()
+  if (action === 'close') emit('close')
+  else emit('enter', e)
+}
 
 function focus() {
   inputEl.value?.focus()

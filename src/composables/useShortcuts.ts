@@ -53,8 +53,13 @@ export function useShortcuts(actions: ShortcutActions) {
   }
 
   async function registerMenuEventListener(): Promise<void> {
-    const { listen } = await import('@tauri-apps/api/event')
-    unlistenMenu = await listen<string>('menu-event', (event) => {
+    // Scoped to THIS window on purpose: the backend emits 'menu-event' only
+    // to the focused window, and delivery targeting requires the listener to
+    // register the window as its event target. The bare listen() helper from
+    // '@tauri-apps/api/event' registers EventTarget::Any (global sniffer) and
+    // would fire the menu action in every open window.
+    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    unlistenMenu = await getCurrentWebviewWindow().listen<string>('menu-event', (event) => {
       menuHandlers[event.payload]?.()
     })
   }

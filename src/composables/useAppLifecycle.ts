@@ -120,8 +120,12 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
   // ── OS file-open events (double-click .md file, drag to dock, etc.) ──
 
   async function registerFileOpenListener(openFileFromTree: (path: string) => void | Promise<void>): Promise<void> {
-    const { listen } = await import('@tauri-apps/api/event')
-    await listen<string>('file-open', (event) => {
+    // Scoped to THIS window on purpose: the backend emits 'file-open' only
+    // to the focused window (the one the OS/single-instance flow activated),
+    // and delivery targeting requires the listener to register the window as
+    // its event target — bare listen() would fire here in every open window.
+    const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+    await getCurrentWebviewWindow().listen<string>('file-open', (event) => {
       const path = event.payload
       if (workspaceRoot.value) {
         // Folder mode → open file in a new window

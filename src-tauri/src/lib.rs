@@ -2,7 +2,28 @@ pub mod commands;
 
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
+
+/// Emit an event only to the currently focused webview window, falling back
+/// to `main` when nothing reports focus (e.g. while windows are still
+/// opening). A plain `emit` broadcasts to every window, so in multi-window
+/// sessions each window's `menu-event`/`file-open` handler would run once
+/// per window (menu action executed N times, .md files opened repeatedly).
+///
+/// Note: this only scopes delivery because the frontend listens through
+/// `getCurrentWebviewWindow().listen(...)`, which registers the window as
+/// the event target. The bare `listen()` helper from `@tauri-apps/api/event`
+/// registers `EventTarget::Any` (a global sniffer) and would receive
+/// targeted emits in every window regardless.
+fn emit_to_focused(app: &AppHandle, event: &str, payload: &str) {
+    for (_label, window) in app.webview_windows() {
+        if window.is_focused().unwrap_or(false) {
+            let _ = app.emit_to(window.label(), event, payload);
+            return;
+        }
+    }
+    let _ = app.emit_to("main", event, payload);
+}
 
 /// Extract markdown file paths from a list of command-line arguments.
 /// Shared by the Windows startup path and the single-instance callback:
@@ -47,8 +68,9 @@ pub fn run() {
                         buf.push(path.clone());
                     }
                 }
-                // Emit for when the frontend is already listening
-                let _ = app.emit("file-open", &path);
+                // Emit for when the frontend is already listening; targeted at
+                // the window we just focused so other windows don't open it too.
+                emit_to_focused(app, "file-open", &path);
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -168,7 +190,9 @@ pub fn run() {
                     }
                 }
                 _ => {
-                    let _ = app.emit("menu-event", event.id().as_ref());
+                    // macOS menus are global: the focused window is the one
+                    // the user is working in, so only it must act on the id.
+                    emit_to_focused(app, "menu-event", event.id().as_ref());
                 }
             }
         })
@@ -187,8 +211,9 @@ pub fn run() {
                                     buf.push(path_str.clone());
                                 }
                             }
-                            // Also emit for when frontend is already listening
-                            let _ = app.emit("file-open", &path_str);
+                            // Also emit for when frontend is already listening;
+                            // the OS activation focused the target window.
+                            emit_to_focused(app, "file-open", &path_str);
                         }
                     }
                 }

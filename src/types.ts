@@ -11,6 +11,13 @@ export interface FileSlot {
   lastSavedContent: string
   /** Full path of the crash-recovery temp copy returned by tempSave (untitled slots only). */
   tempPath?: string | null
+  /**
+   * True while the user has already been warned about this slot's failed
+   * save (disk error or external change). The autosave timer re-fires every
+   * autosaveDelayMs, so without this flag a deleted/moved file would re-toast
+   * the same error forever. Cleared by the slot's next successful save.
+   */
+  saveErrorNotified?: boolean
 }
 
 export type SidebarMode = 'hidden' | 'tree' | 'flat'

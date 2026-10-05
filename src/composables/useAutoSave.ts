@@ -59,19 +59,32 @@ export function useAutoSave(options: UseAutoSaveOptions) {
         // user's in-editor changes (dirty stays true so nothing is lost).
         const onDisk = await fileRead(slot.filePath)
         if (onDisk !== slot.lastSavedContent) {
-          showToast('File changed outside Lexx — use Save As to keep both versions')
+          // The timer re-fires every autosaveDelayMs and the condition won't
+          // clear itself (dirty stays true) — warn once, not every tick.
+          if (!slot.saveErrorNotified) {
+            slot.saveErrorNotified = true
+            showToast('File changed outside Lexx — use Save As to keep both versions')
+          }
           return false
         }
         await fileWrite(slot.filePath, content)
         slot.dirty = false
         slot.lastSavedContent = content
+        slot.saveErrorNotified = false
       } else {
         slot.tempPath = await tempSave(slot.filename, content)
         slot.lastSavedContent = content
+        slot.saveErrorNotified = false
       }
       return true
     } catch (e) {
-      showToast(`Auto-save failed: ${e instanceof Error ? e.message : String(e)}`)
+      // Same once-only rule: a file deleted/moved outside Lexx fails here on
+      // every autosave tick until the user acts; repeating the toast every
+      // autosaveDelayMs is noise, not information.
+      if (!slot.saveErrorNotified) {
+        slot.saveErrorNotified = true
+        showToast(`Auto-save failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
       return false
     }
   }

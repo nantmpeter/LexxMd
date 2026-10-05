@@ -53,8 +53,13 @@ pub fn file_read(path: String) -> Result<String, String> {
 /// Used by DOCX export to embed local images: the webview's JS fetch() cannot
 /// read asset:// URLs (they only serve <img>/resource loading), so the export
 /// round-trips image bytes through this command instead.
+///
+/// Async so Tauri runs it off the main thread: the body is plain blocking
+/// `fs::read` (no async fs dep on purpose), which would otherwise freeze the
+/// UI while a large image is read. It occupies one runtime worker while
+/// blocking — acceptable for this low-frequency export path.
 #[tauri::command]
-pub fn file_read_binary(path: String) -> Result<String, String> {
+pub async fn file_read_binary(path: String) -> Result<String, String> {
     use base64::Engine;
     let path = PathBuf::from(&path);
     if !path.exists() {
@@ -174,7 +179,9 @@ mod tests {
 
     #[test]
     fn file_read_binary_nonexistent_returns_error() {
-        let result = file_read_binary("/tmp/mdeditor_test_binary_nonexistent_99999.png".into());
+        let result = tauri::async_runtime::block_on(file_read_binary(
+            "/tmp/mdeditor_test_binary_nonexistent_99999.png".into(),
+        ));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("File not found"));
     }
@@ -190,7 +197,10 @@ mod tests {
         let bytes: Vec<u8> = (0..=255u8).cycle().take(1024).collect();
 
         fs::write(&path, &bytes).unwrap();
-        let encoded = file_read_binary(path.to_string_lossy().to_string()).unwrap();
+        let encoded = tauri::async_runtime::block_on(file_read_binary(
+            path.to_string_lossy().to_string(),
+        ))
+        .unwrap();
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(&encoded)
             .unwrap();

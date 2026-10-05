@@ -94,6 +94,63 @@ describe('useAutoSave external-change guard', () => {
     expect(mockTempSave).toHaveBeenCalledWith('Untitled 1.md', 'edited content')
     expect(slot.lastSavedContent).toBe('edited content')
   })
+
+  it('toasts an external change once, not on every autosave tick', async () => {
+    const slot = createSlot()
+    const showToast = vi.fn<ToastFn>()
+    const { performAutoSave } = createComposable(slot, showToast)
+
+    mockFileRead.mockResolvedValue('externally edited content')
+    await performAutoSave(slot)
+    await performAutoSave(slot)
+    await performAutoSave(slot)
+
+    expect(showToast).toHaveBeenCalledTimes(1)
+    expect(slot.saveErrorNotified).toBe(true)
+  })
+
+  it('resets the once-only toast flag after a successful save', async () => {
+    const slot = createSlot({ saveErrorNotified: true })
+    const showToast = vi.fn<ToastFn>()
+    const { performAutoSave } = createComposable(slot, showToast)
+
+    // Still failing: the pre-set flag keeps the repeated failure silent.
+    mockFileRead.mockResolvedValue('externally edited content')
+    await performAutoSave(slot)
+    expect(showToast).not.toHaveBeenCalled()
+
+    // Disk matches again (user resolved the conflict): the save succeeds and
+    // the flag clears, so a FUTURE failure warns again.
+    mockFileRead.mockResolvedValue('saved content')
+    mockFileWrite.mockResolvedValue(undefined)
+    const ok = await performAutoSave(slot)
+    expect(ok).toBe(true)
+    expect(slot.saveErrorNotified).toBe(false)
+
+    // Next autosave tick: the slot is dirty again (new user edits) and the
+    // file changed on disk once more — this new failure must warn again.
+    slot.dirty = true
+    slot.lastSavedContent = 'saved content'
+    mockFileRead.mockResolvedValue('externally edited again')
+    await performAutoSave(slot)
+    expect(showToast).toHaveBeenCalledTimes(1)
+  })
+
+  it('toasts a write failure once and stays silent while it repeats', async () => {
+    const slot = createSlot()
+    const showToast = vi.fn<ToastFn>()
+    const { performAutoSave } = createComposable(slot, showToast)
+
+    // fileRead succeeds but the write itself fails on every tick (disk full,
+    // permissions...): the user gets exactly one warning.
+    mockFileRead.mockResolvedValue('saved content')
+    mockFileWrite.mockRejectedValue(new Error('EACCES'))
+    await performAutoSave(slot)
+    await performAutoSave(slot)
+
+    expect(showToast).toHaveBeenCalledTimes(1)
+    expect(showToast).toHaveBeenCalledWith('Auto-save failed: EACCES')
+  })
 })
 
 describe('useAutoSave prefs-driven scheduling', () => {

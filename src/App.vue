@@ -300,11 +300,22 @@ function showToast(message: string, type: 'error' | 'success' = 'error') {
 
 // ── Markdown content ───────────────────────────────────────
 
+// Serialization failures repeat on every autosave tick (and every close/quit
+// flow) for as long as the document stays unserializable; toast the first one
+// and reset on the next successful serialization.
+let serializeErrorNotified = false
+
 function getMarkdownContent(slot: FileSlot): string | null {
   if (!slot.editor) return null
   const md = slot.editor.storage.markdown?.getMarkdown?.()
-  if (typeof md === 'string') return md
-  showToast('Failed to serialize document as Markdown')
+  if (typeof md === 'string') {
+    serializeErrorNotified = false
+    return md
+  }
+  if (!serializeErrorNotified) {
+    showToast('Failed to serialize document as Markdown')
+    serializeErrorNotified = true
+  }
   return null
 }
 

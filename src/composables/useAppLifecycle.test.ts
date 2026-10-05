@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ref } from 'vue'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { markRaw, ref } from 'vue'
+import { Editor } from '@tiptap/core'
+import StarterKit from '@tiptap/starter-kit'
+import { Markdown } from 'tiptap-markdown'
 
 vi.mock('../tauri/commands', () => ({
   listTempFiles: vi.fn(),
@@ -14,6 +17,7 @@ vi.mock('../editor/extensions/lexx-image', () => ({
 
 import { fileRead } from '../tauri/commands'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
+import { FixContentParsing } from '../editor/extensions/fix-content-parsing'
 import { useAppLifecycle } from './useAppLifecycle'
 import type { FileSlot } from '../types'
 
@@ -33,12 +37,48 @@ function makeSlot(partial: Partial<FileSlot>): FileSlot {
   }
 }
 
+/**
+ * Mock of the reload call path: checkExternalChanges pins addToHistory=false
+ * on the shared chain transaction, then setContent(content, false) runs
+ * inside the same chain. `metas` records every setMeta for assertions.
+ */
 function makeEditor() {
-  return {
+  const metas: Array<[string, unknown]> = []
+  const editor = {
+    metas,
     commands: {
       setContent: vi.fn(),
     },
+    chain() {
+      const tr = {
+        setMeta: (key: string, value: unknown) => {
+          metas.push([key, value])
+        },
+      }
+      const api = {
+        command: (cb: (props: { tr: typeof tr }) => boolean) => {
+          cb({ tr })
+          return api
+        },
+        setContent: (...args: unknown[]) => {
+          editor.commands.setContent(...args)
+          return api
+        },
+        run: () => true,
+      }
+      return api
+    },
   }
+  return editor
+}
+
+/** Real editor (same parse stack as preserve-blocks.test.ts) for undo assertions. */
+function createRealEditor() {
+  // Production markRaw's slot editors (useFileSlots); mirroring that keeps
+  // the deep `ref(openFiles)` from handing checkExternalChanges a proxy.
+  return markRaw(new Editor({
+    extensions: [StarterKit, Markdown.configure({ html: true }), FixContentParsing],
+  }))
 }
 
 function setup(openFiles: FileSlot[], isSlotInSourceMode: (slot: FileSlot) => boolean = () => false) {
@@ -82,6 +122,116 @@ describe('checkExternalChanges auto-reload', () => {
     expect(mockedConvert).toHaveBeenCalledWith(editor, '/docs/a.md')
     expect(slot.lastSavedContent).toBe('external content')
     expect(slot.dirty).toBe(false)
+  })
+
+  it('pins addToHistory=false onto the reload transaction (emitUpdate stays false)', async () => {
+    const editor = makeEditor()
+    const slot = makeSlot({
+      filePath: '/docs/a.md',
+      filename: 'a.md',
+      lastSavedContent: 'old content',
+      editor: editor as unknown as FileSlot['editor'],
+    })
+    const { checkExternalChanges } = setup([slot])
+    mockedFileRead.mockResolvedValue('external content')
+
+    await checkExternalChanges()
+
+    // The reload rides the same transaction setContent dispatches (tiptap
+    // chain): undo must skip it while preventUpdate still suppresses updates.
+    expect(editor.metas).toContainEqual(['addToHistory', false])
+    expect(editor.commands.setContent).toHaveBeenCalledWith('external content', false)
+    expect(slot.lastSavedContent).toBe('external content')
+  })
+
+  it('keeps the external reload out of undo history (undo cannot resurrect stale content)', async () => {
+    const editor = createRealEditor()
+    editor.commands.setContent('old content', false)
+    const slot = makeSlot({
+      filePath: '/docs/a.md',
+      filename: 'a.md',
+      lastSavedContent: 'old content',
+      editor: editor as unknown as FileSlot['editor'],
+    })
+    const { checkExternalChanges } = setup([slot])
+    mockedFileRead.mockResolvedValue('external content')
+
+    await checkExternalChanges()
+
+    expect(slot.lastSavedContent).toBe('external content')
+    expect(editor.state.doc.textContent).toBe('external content')
+    // lastSavedContent was re-baselined to the disk text; an undo that
+    // resurrected 'old content' would look like a user edit and the autosave
+    // guard would silently write the stale document back over the disk file.
+    // The initial load legitimately occupies a history entry (pre-existing
+    // behavior), so drain whatever history exists and assert the pre-reload
+    // document never comes back. Had the reload leaked into history, the
+    // first undo step would restore 'old content' and fail inside the loop.
+    let guard = 0
+    while (editor.commands.undo() === true && guard++ < 10) {
+      expect(editor.state.doc.textContent).not.toBe('old content')
+    }
+    expect(editor.commands.undo()).toBe(false)
+    expect(editor.state.doc.textContent).not.toBe('old content')
+    editor.destroy()
+  })
+
+  it('control: a real user edit after the reload is still undoable back to the disk content', async () => {
+    vi.useFakeTimers()
+    const editor = createRealEditor()
+    editor.commands.setContent('old content', false)
+    const slot = makeSlot({
+      filePath: '/docs/a.md',
+      filename: 'a.md',
+      lastSavedContent: 'old content',
+      editor: editor as unknown as FileSlot['editor'],
+    })
+    const { checkExternalChanges } = setup([slot])
+    mockedFileRead.mockResolvedValue('external content')
+
+    await checkExternalChanges()
+
+    // Only the reload itself is excluded from history; subsequent user edits
+    // must keep normal undo semantics. Advance past prosemirror-history's
+    // newGroupDelay so the edit does not merge into the initial-load entry.
+    vi.advanceTimersByTime(1000)
+    editor.commands.insertContentAt(editor.state.doc.content.size, '!')
+    expect(editor.state.doc.textContent).toBe('external content!')
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.state.doc.textContent).toBe('external content')
+    vi.useRealTimers()
+    editor.destroy()
+  })
+
+  it('does not re-baseline when the reload command fails', async () => {
+    const metas: Array<[string, unknown]> = []
+    const editor = {
+      metas,
+      commands: { setContent: vi.fn() },
+      chain() {
+        const tr = { setMeta: () => {} }
+        const api = {
+          command: () => api,
+          setContent: () => api,
+          run: () => false, // command chain failed (e.g. missing md parser)
+        }
+        return api
+      },
+    }
+    const slot = makeSlot({
+      filePath: '/docs/a.md',
+      lastSavedContent: 'old content',
+      editor: editor as unknown as FileSlot['editor'],
+    })
+    const { checkExternalChanges } = setup([slot])
+    mockedFileRead.mockResolvedValue('external content')
+
+    await checkExternalChanges()
+
+    // Baseline must stay on the old text: re-baselining without a reload
+    // would make autosave write the stale editor content over the disk file.
+    expect(slot.lastSavedContent).toBe('old content')
+    expect(mockedConvert).not.toHaveBeenCalled()
   })
 
   it('toasts the reload with the file name', async () => {

@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import type { Ref } from 'vue'
+import type { CommandProps } from '@tiptap/core'
 import { listTempFiles, deleteTempFile, fileRead, openFileInNewWindow } from '../tauri/commands'
 import { convertLocalImagesInEditor } from '../editor/extensions/lexx-image'
 import type { FileSlot } from '../types'
@@ -147,6 +148,14 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
    * then the local-image conversion pass runs (the same contract as an
    * initial open), then the saved-content baseline moves to the disk text.
    *
+   * The reload transaction is kept OUT of undo history: lastSavedContent was
+   * already moved to the disk text, so an undo that resurrected the old
+   * document would look like a legitimate user edit and the autosave guard
+   * would silently write the stale content back over the newer disk file.
+   * The meta rides on the same transaction setContent dispatches (tiptap
+   * chains share one tr; run() dispatches it once), mirroring the
+   * addToHistory contract of convertLocalImagesInEditor.
+   *
    * Dirty slots are never touched — the user's unsaved edits outrank the
    * disk version, and their external-change toast already fires at autosave
    * write time.
@@ -169,7 +178,18 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
           continue
         }
         if (!slot.editor) continue
-        await slot.editor.commands.setContent(onDisk, false)
+        // setContent(content, false) keeps preventUpdate (no dirty marking),
+        // but its replacement transaction used to enter undo history; the
+        // chain step pins addToHistory=false onto that same transaction.
+        const reloaded = slot.editor
+          .chain()
+          .command(({ tr }: CommandProps) => {
+            tr.setMeta('addToHistory', false)
+            return true
+          })
+          .setContent(onDisk, false)
+          .run()
+        if (!reloaded) continue
         await convertLocalImagesInEditor(slot.editor, slot.filePath)
         slot.lastSavedContent = onDisk
         showToast(`Reloaded ${slot.filename} (changed outside Lexx)`)

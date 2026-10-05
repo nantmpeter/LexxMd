@@ -495,8 +495,8 @@ function clearAllAutoSaveTimers() {
   autoSaveTimers.clear()
 }
 
-async function performAutoSave(slot: FileSlot) {
-  if (!slot.dirty || !slot.editor) return
+async function performAutoSave(slot: FileSlot): Promise<boolean> {
+  if (!slot.dirty || !slot.editor) return true
 
   // If in source mode, sync CM → PM
   if (sourceMode.value && sourceEditor && activeFile.value?.id === slot.id) {
@@ -507,7 +507,7 @@ async function performAutoSave(slot: FileSlot) {
   }
 
   const content = getMarkdownContent(slot)
-  if (content === null) return
+  if (content === null) return false
 
   try {
     if (slot.filePath) {
@@ -518,8 +518,10 @@ async function performAutoSave(slot: FileSlot) {
       await tempSave(slot.filename, content)
       slot.lastSavedContent = content
     }
-  } catch {
-    // Silent
+    return true
+  } catch (e) {
+    showToast(`Auto-save failed: ${e instanceof Error ? e.message : String(e)}`)
+    return false
   }
 }
 
@@ -878,18 +880,22 @@ async function openFileFromTree(path: string) {
   }
 }
 
-async function confirmUnsaved(fn: string): Promise<boolean> {
+async function confirmDiscardChanges(message: string): Promise<boolean> {
   try {
     const { ask } = await import('@tauri-apps/plugin-dialog')
-    return await ask(`"${fn}" has unsaved changes. Close anyway?`, {
+    return await ask(message, {
       title: 'Unsaved Changes',
       kind: 'warning',
       okLabel: 'Discard',
       cancelLabel: 'Cancel',
     })
   } catch {
-    return window.confirm(`"${fn}" has unsaved changes. Close anyway?`)
+    return window.confirm(message)
   }
+}
+
+async function confirmUnsaved(fn: string): Promise<boolean> {
+  return confirmDiscardChanges(`"${fn}" has unsaved changes. Close anyway?`)
 }
 
 // ── Crash recovery ─────────────────────────────────────────
@@ -1019,14 +1025,25 @@ onMounted(async () => {
     const appWindow = getCurrentWindow()
     appWindow.onCloseRequested(async (event) => {
       const dirtySlots = openFiles.value.filter(f => f.dirty)
-      if (dirtySlots.length > 0) {
-        event.preventDefault()
-        clearAllAutoSaveTimers()
-        for (const slot of dirtySlots) {
-          await performAutoSave(slot)
-        }
-        await appWindow.destroy()
+      if (dirtySlots.length === 0) return
+      event.preventDefault()
+      clearAllAutoSaveTimers()
+      let allSaved = true
+      for (const slot of dirtySlots) {
+        const saved = await performAutoSave(slot)
+        if (!saved) allSaved = false
       }
+      if (!allSaved) {
+        // Auto-save failed for at least one file: never destroy silently,
+        // ask the user to confirm discarding the unsaved changes.
+        const failed = dirtySlots.filter(f => f.dirty)
+        const names = failed.map(f => f.filename).join(', ')
+        const confirmed = await confirmDiscardChanges(
+          `Auto-save failed for "${names}". Close anyway and lose unsaved changes?`
+        )
+        if (!confirmed) return
+      }
+      await appWindow.destroy()
     })
   } catch {
     // Not running in Tauri

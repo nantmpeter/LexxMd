@@ -65,6 +65,10 @@
       :source-mode="sourceMode"
       @toggle-source="toggleSourceMode"
     />
+    <div v-if="exporting" class="export-overlay">
+      <div class="export-spinner" aria-hidden="true"></div>
+      <div class="export-overlay-text">Exporting…</div>
+    </div>
     <Transition name="toast">
       <div v-if="toast" class="toast" :class="toast.type">{{ toast.message }}</div>
     </Transition>
@@ -169,7 +173,7 @@ const {
   replaceCurrentMatch, replaceAllMatches, onSearchEnter,
 } = searchApi
 
-const { handleExportPDF, handleExportDOCX, handleExportJPEG } = useExport({
+const { handleExportPDF, handleExportDOCX, handleExportJPEG, exporting } = useExport({
   activeFile, activeFilename, showToast,
 })
 

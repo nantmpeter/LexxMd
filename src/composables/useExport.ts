@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import type { ComputedRef } from 'vue'
 import { exportPDF, exportDOCX, exportJPEG } from '../export'
 import { arrayBufferToBase64 } from '../export/utils'
@@ -14,7 +15,25 @@ interface UseExportOptions {
 export function useExport(options: UseExportOptions) {
   const { activeFile, activeFilename, showToast } = options
 
-  async function handleExportPDF() {
+  /**
+   * True while any export is running. App.vue renders a full-screen blocking
+   * overlay from it (exports have no internal progress callback, so there is
+   * deliberately no percentage — just a spinner).
+   */
+  const exporting = ref(false)
+
+  /** Serialize exports: the overlay blocks clicks, this is the JS-side backstop. */
+  async function runExclusive(task: () => Promise<void>) {
+    if (exporting.value) return
+    exporting.value = true
+    try {
+      await task()
+    } finally {
+      exporting.value = false
+    }
+  }
+
+  async function doExportPDF() {
     const slot = activeFile.value
     if (!slot?.element) return
     try {
@@ -35,7 +54,7 @@ export function useExport(options: UseExportOptions) {
     }
   }
 
-  async function handleExportDOCX() {
+  async function doExportDOCX() {
     const slot = activeFile.value
     if (!slot?.element) return
     try {
@@ -56,7 +75,7 @@ export function useExport(options: UseExportOptions) {
     }
   }
 
-  async function handleExportJPEG() {
+  async function doExportJPEG() {
     const slot = activeFile.value
     if (!slot?.element) return
     try {
@@ -78,8 +97,9 @@ export function useExport(options: UseExportOptions) {
   }
 
   return {
-    handleExportPDF,
-    handleExportDOCX,
-    handleExportJPEG,
+    exporting,
+    handleExportPDF: () => runExclusive(doExportPDF),
+    handleExportDOCX: () => runExclusive(doExportDOCX),
+    handleExportJPEG: () => runExclusive(doExportJPEG),
   }
 }

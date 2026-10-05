@@ -70,6 +70,23 @@ pub fn list_directory(dir_path: String) -> Result<Vec<DirEntry>, String> {
     Ok(entries)
 }
 
+/// Generate a process-unique window label: `<prefix>-<unix-millis>-<seq>`.
+/// The atomic counter is what guarantees uniqueness: two windows created
+/// within the same millisecond previously produced identical labels and the
+/// second `WebviewWindowBuilder::build` failed (an error the frontend
+/// swallows, leaving the user with a silently unopened window). Pure
+/// function so label uniqueness is directly unit-testable.
+fn next_window_label(prefix: &str) -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{}-{}-{}", prefix, millis, seq)
+}
+
 /// Open a folder in a new application window (for conflict resolution).
 #[tauri::command]
 pub async fn open_folder_in_new_window(
@@ -78,13 +95,7 @@ pub async fn open_folder_in_new_window(
 ) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-    let label = format!(
-        "ws-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
+    let label = next_window_label("ws");
     let encoded = urlencoding::encode(&folder_path);
     let url = format!("index.html?workspace={}", encoded);
 
@@ -107,13 +118,7 @@ pub async fn open_file_in_new_window(
 ) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-    let label = format!(
-        "file-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
+    let label = next_window_label("file");
     let encoded = urlencoding::encode(&file_path);
     let url = format!("index.html?file={}", encoded);
 
@@ -133,4 +138,55 @@ pub async fn open_file_in_new_window(
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn next_window_label_format() {
+        let label = next_window_label("ws");
+        assert!(label.starts_with("ws-"), "label missing prefix: {label}");
+        // Shape is `ws-<millis>-<seq>`: two numeric fields after the prefix.
+        let fields: Vec<&str> = label["ws-".len()..].split('-').collect();
+        assert_eq!(fields.len(), 2, "unexpected label shape: {label}");
+        assert!(
+            fields.iter().all(|f| !f.is_empty() && f.chars().all(|c| c.is_ascii_digit())),
+            "non-numeric label fields: {label}"
+        );
+    }
+
+    #[test]
+    fn next_window_label_unique_across_threads() {
+        // Hammer the generator from several threads at once: the shared
+        // atomic counter must keep every label distinct even when calls
+        // land in the same millisecond (the original collision bug).
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    (0..64).map(|_| next_window_label("ws")).collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut seen = HashSet::new();
+        for handle in handles {
+            for label in handle.join().unwrap() {
+                assert!(seen.insert(label), "duplicate window label generated");
+            }
+        }
+        assert_eq!(seen.len(), 8 * 64);
+    }
+
+    #[test]
+    fn next_window_label_prefixes_never_collide() {
+        // `ws` and `file` labels share one global counter, so even
+        // same-millisecond calls across the two prefixes stay distinct.
+        let ws = next_window_label("ws");
+        let file = next_window_label("file");
+        assert_ne!(ws, file);
+        assert!(ws.starts_with("ws-"));
+        assert!(file.starts_with("file-"));
+    }
 }

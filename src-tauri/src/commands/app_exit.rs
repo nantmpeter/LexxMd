@@ -26,6 +26,15 @@ pub struct PendingExitAcks(pub Mutex<Option<Vec<String>>>);
 /// - Windows/Linux: `RunEvent::ExitRequested { code: None }` with windows
 ///   still alive (see the run-event branch in lib.rs).
 pub fn begin_app_exit(app: &AppHandle) {
+    // A quit is already in flight (e.g. Cmd+Q pressed twice in a row, or the
+    // menu item firing twice): ignore the repeat. Overwriting the ack list
+    // would drop acks already collected, and re-emitting `app-exit` would run
+    // the save flow in every window a second time (stacked confirm dialogs).
+    if let Ok(guard) = app.state::<PendingExitAcks>().0.lock() {
+        if guard.is_some() {
+            return;
+        }
+    }
     let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
     if labels.is_empty() {
         // No window left to run a save flow (e.g. the last window just

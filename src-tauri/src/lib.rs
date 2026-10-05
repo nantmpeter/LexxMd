@@ -226,6 +226,12 @@ pub fn run() {
                     // last-window-close case arrives with an empty registry
                     // and must exit normally instead of preventing into a
                     // windowless hang.
+                    // NOTE: on tauri 2.12.1 this branch is unreachable in
+                    // practice — the runtime only fires `code: None` once the
+                    // window registry is already empty, so `!is_empty()` never
+                    // holds. Kept as a defense against future runtime versions
+                    // that may deliver a user-driven request while windows are
+                    // still alive.
                     if code.is_none() && !app.webview_windows().is_empty() {
                         api.prevent_exit();
                         commands::begin_app_exit(app);

@@ -60,6 +60,7 @@
     />
     <StatusBar
       :editor="sourceMode ? null : activeEditor"
+      :editor-version="editorVersion"
       :dirty="activeDirty"
       :source-mode="sourceMode"
       @toggle-source="toggleSourceMode"
@@ -113,6 +114,10 @@ const replaceQuery = ref('')
 const searchActiveIndex = ref(-1)
 const searchTotal = ref(0)
 const searchInputEl = ref<InstanceType<typeof FindBar> | null>(null)
+// Bumped on every editor document change. The editor instances are markRaw'd,
+// so StatusBar needs this reactive counter to refresh word/char counts while
+// the user types.
+const editorVersion = ref(0)
 
 const quickOpenOpen = ref(false)
 const quickOpenFiles = ref<QuickOpenFile[]>([])
@@ -577,6 +582,10 @@ function setSlotElement(id: string, el: HTMLElement | null) {
     slot.editor = markRaw(createEditor(el, slot.lastSavedContent, () => slot.filePath))
     if (slot.filePath) convertLocalImagesInEditor(slot.editor, slot.filePath)
     slot.editor.on('update', ({ transaction }: { transaction: Transaction }) => {
+      // Any document change (including image-path conversion) must refresh the
+      // StatusBar counters; the dirty/autosave branch below intentionally skips
+      // conversion transactions.
+      if (transaction.docChanged) editorVersion.value++
       if (transaction.getMeta('convertLocalImages')) return
       slot.dirty = true
       scheduleAutoSave(slot)

@@ -37,6 +37,26 @@ describe('StatusBar', () => {
     expect(wrapper.text()).toContain('5 chars')
   })
 
+  it('refreshes word/char counts when editorVersion increases', async () => {
+    // Regression: the editor instance is markRaw'd, so its reference never
+    // changes and a computed that only reads editor.getText() would freeze at
+    // the first evaluation. The parent bumps editorVersion on every document
+    // change and the computeds must consume it.
+    let text = 'one two'
+    const editor = { getText: () => text }
+    const wrapper = mount(StatusBar, {
+      props: { editor, dirty: false, editorVersion: 0 },
+    })
+    expect(wrapper.text()).toContain('2 words')
+    expect(wrapper.text()).toContain('7 chars')
+
+    // User types more text; only editorVersion changes (editor ref is stable).
+    text = 'one two three four'
+    await wrapper.setProps({ editorVersion: 1 })
+    expect(wrapper.text()).toContain('4 words')
+    expect(wrapper.text()).toContain('18 chars')
+  })
+
   it('hides word/char count when editor is null', () => {
     const wrapper = mount(StatusBar, {
       props: { editor: null, dirty: false },

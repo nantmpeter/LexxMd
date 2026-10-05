@@ -23,6 +23,12 @@ const props = defineProps<{
   editor: any
   dirty: boolean
   sourceMode?: boolean
+  /**
+   * Bumped by the parent on every editor document change. The editor instance
+   * is markRaw'd (non-reactive) and its reference never changes, so computeds
+   * must consume this counter to recompute while the user types.
+   */
+  editorVersion?: number
 }>()
 
 const emit = defineEmits<{
@@ -34,6 +40,8 @@ function onToggleSource() {
 }
 
 const wordCount = computed(() => {
+  // Re-run whenever the parent bumps editorVersion (see props doc).
+  void props.editorVersion
   if (!props.editor) return 0
   const text = props.editor.getText()
   if (!text || !text.trim()) return 0
@@ -41,6 +49,7 @@ const wordCount = computed(() => {
 })
 
 const charCount = computed(() => {
+  void props.editorVersion
   if (!props.editor) return 0
   return props.editor.getText().length
 })

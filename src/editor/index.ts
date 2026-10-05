@@ -31,6 +31,7 @@ import { FixContentParsing } from './extensions/fix-content-parsing'
 import { TrailingNode } from './extensions/trailing-node'
 import { TaskListInputRule } from './extensions/task-list-input'
 import { MarkdownItPlugins } from './extensions/markdown-it-plugins'
+import { Frontmatter, RawHtmlBlock } from './extensions/preserve-blocks'
 import { BubbleToolbar } from './extensions/bubble-toolbar'
 import { SearchMatchExtension } from './extensions/search-match'
 
@@ -125,6 +126,8 @@ export function createEditor(element: HTMLElement, content: string = '', getFile
       TrailingNode,
       TaskListInputRule,
       MarkdownItPlugins,
+      Frontmatter,
+      RawHtmlBlock,
       SearchMatchExtension,
       BubbleToolbar,
     ],

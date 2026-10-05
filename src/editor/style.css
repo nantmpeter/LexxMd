@@ -378,6 +378,33 @@ html, body {
   border-radius: 0;
 }
 
+/* ── Preserved Blocks (frontmatter / raw html) ────────────── */
+/* Verbatim plain-text blocks for YAML front matter and block-level raw
+   HTML. Same look as code blocks plus a small source label. The text is
+   stored as-is and never rendered as markup. */
+
+.ProseMirror pre.preserved-block {
+  font-family: 'Fira Code', Consolas, 'Courier New', monospace;
+  font-size: 0.875em;
+  color: var(--text-code);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-top: 2em;
+}
+
+.ProseMirror pre.preserved-block::before {
+  content: attr(data-label);
+  position: absolute;
+  top: 0.5em;
+  right: 0.75em;
+  font-size: 0.8em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  user-select: none;
+  pointer-events: none;
+}
+
 /* ── Tables ───────────────────────────────────────────────── */
 
 .ProseMirror table {

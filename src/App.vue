@@ -87,7 +87,7 @@ import Sidebar from './ui/Sidebar.vue'
 import MenuBar from './ui/MenuBar.vue'
 import FindBar from './ui/FindBar.vue'
 import QuickOpen from './ui/QuickOpen.vue'
-import { saveFileDialogWithFilter, fileWriteBinary, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, toggleFullscreen, drainPendingFiles } from './tauri/commands'
+import { saveFileDialogWithFilter, fileWriteBinary, listTempFiles, deleteTempFile, fileRead, updateWindowTitle, directoryOpenDialog, openFolderInNewWindow, openFileInNewWindow, drainPendingFiles } from './tauri/commands'
 import { exportPDF, exportDOCX, exportJPEG } from './export'
 import { arrayBufferToBase64 } from './export/utils'
 import type { FileSlot } from './types'
@@ -95,6 +95,7 @@ import { useQuickOpen } from './composables/useQuickOpen'
 import { useAutoSave } from './composables/useAutoSave'
 import { useSourceMode } from './composables/useSourceMode'
 import { useFileSlots } from './composables/useFileSlots'
+import { useShortcuts } from './composables/useShortcuts'
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
 
@@ -126,8 +127,6 @@ const effectiveSidebarMode = computed(() => {
 // ── Composable assembly ────────────────────────────────────
 
 let toastTimeout: ReturnType<typeof setTimeout> | null = null
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let unlistenMenu: any = null
 
 // ── Computed accessors ─────────────────────────────────────
 
@@ -229,6 +228,23 @@ const {
   workspaceRoot,
   showToast,
   openFileFromTree,
+})
+
+const { onMenuBarEvent, registerMenuEventListener } = useShortcuts({
+  handleNew,
+  handleOpen,
+  handleOpenFolder,
+  openQuickOpen,
+  handleSave,
+  openSearch,
+  handleClose,
+  toggleSourceMode,
+  handleExportPDF,
+  handleExportDOCX,
+  handleExportJPEG,
+  handleCycleNext,
+  handleCyclePrev,
+  isSourceMode: () => sourceMode.value,
 })
 
 // ── Toast ──────────────────────────────────────────────────
@@ -579,29 +595,12 @@ onMounted(async () => {
     switchToFile(initialSlot.id)
   }
 
-  // ── Frontend menu bar (Windows) ────────────────────────────
-  // (onMenuBarEvent is defined at top level so the template can bind it)
-
-  // Menu events + keyboard shortcuts
+  // ── Menu events (keyboard shortcuts are registered by useShortcuts) ──
   try {
-    const { listen } = await import('@tauri-apps/api/event')
-    unlistenMenu = await listen<string>('menu-event', (event) => {
-      switch (event.payload) {
-        case 'fn': handleNew(); break
-        case 'fo': handleOpen(); break
-        case 'ff': handleOpenFolder(); break
-        case 'fq': openQuickOpen(); break
-        case 'fs': handleSave(); break
-        case 'ef': openSearch(); break
-        case 'fc': handleClose(); break
-        case 'vs': toggleSourceMode(); break
-        case 'ep': handleExportPDF(); break
-        case 'ed': handleExportDOCX(); break
-        case 'ej': handleExportJPEG(); break
-      }
-    })
+    await registerMenuEventListener()
 
     // File-open events from OS (double-click .md file, drag to dock, etc.)
+    const { listen } = await import('@tauri-apps/api/event')
     await listen<string>('file-open', (event) => {
       const path = event.payload
       if (workspaceRoot.value) {
@@ -615,9 +614,6 @@ onMounted(async () => {
   } catch {
     // Not running in Tauri
   }
-  // Always register keyboard shortcuts (menu accelerators may not forward to frontend on all platforms)
-  window.addEventListener('keydown', onAcceleratorKey)
-  window.addEventListener('keydown', onCycleKey)
 
   // Window close
   try {
@@ -656,42 +652,6 @@ onMounted(async () => {
   await checkCrashRecovery()
 })
 
-function onMenuBarEvent(id: string) {
-  if (id === 'vf') {
-    toggleFullscreen().catch(() => {})
-    return
-  }
-  switch (id) {
-    case 'fn': handleNew(); break
-    case 'fo': handleOpen(); break
-    case 'ff': handleOpenFolder(); break
-    case 'fq': openQuickOpen(); break
-    case 'fs': handleSave(); break
-    case 'ef': openSearch(); break
-    case 'fc': handleClose(); break
-    case 'vs': toggleSourceMode(); break
-    case 'ep': handleExportPDF(); break
-    case 'ed': handleExportDOCX(); break
-    case 'ej': handleExportJPEG(); break
-  }
-}
-
-function onAcceleratorKey(e: KeyboardEvent) {
-
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'f') {
-    if (sourceMode.value) return
-    e.preventDefault()
-    openSearch()
-  }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); openQuickOpen() }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 's') { e.preventDefault(); handleSave() }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'o') { e.preventDefault(); handleOpen() }
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'O') { e.preventDefault(); handleOpenFolder() }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') { e.preventDefault(); handleNew() }
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') { e.preventDefault(); handleClose() }
-  if (e.key === 'Escape' && sourceMode.value) { e.preventDefault(); toggleSourceMode() }
-}
-
 watch(activeEditor, () => {
   if (!searchOpen.value) return
   updateSearch(activeEditor.value, { query: searchQuery.value })
@@ -704,23 +664,9 @@ watch(searchQuery, () => {
   applySearchQuery()
 })
 
-function onCycleKey(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === ']') {
-    e.preventDefault()
-    handleCycleNext()
-  }
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '[') {
-    e.preventDefault()
-    handleCyclePrev()
-  }
-}
-
 onBeforeUnmount(() => {
   clearAllAutoSaveTimers()
-  if (unlistenMenu) unlistenMenu()
   destroySourceEditor()
-  window.removeEventListener('keydown', onAcceleratorKey)
-  window.removeEventListener('keydown', onCycleKey)
   if (toastTimeout) clearTimeout(toastTimeout)
   for (const slot of openFiles.value) {
     slot.editor?.destroy()

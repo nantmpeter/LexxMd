@@ -630,6 +630,10 @@ async function closeFile(slot: FileSlot): Promise<boolean> {
     if (!confirmed) return false
   }
 
+  // Only the active view may be moved: closing a background tab must leave
+  // the currently visible file (and any source-mode session) untouched.
+  const wasActive = slot.id === activeFileId.value
+
   clearAutoSaveTimer(slot)
   cleanupSlotTemp(slot)
   slot.editor?.destroy()
@@ -641,7 +645,7 @@ async function closeFile(slot: FileSlot): Promise<boolean> {
   if (openFiles.value.length === 0) {
     const newSlot = createFileSlot()
     switchToFile(newSlot.id)
-  } else {
+  } else if (wasActive) {
     const newIdx = Math.min(idx, openFiles.value.length - 1)
     switchToFile(openFiles.value[newIdx].id)
   }

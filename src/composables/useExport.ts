@@ -58,7 +58,7 @@ export function useExport(options: UseExportOptions) {
     const slot = activeFile.value
     if (!slot?.element) return
     try {
-      const blob = await exportDOCX(slot.element)
+      const { blob, imageStats } = await exportDOCX(slot.element)
       const baseName = activeFilename.value.replace(/\.[^.]+$/, '')
       const chosenPath = await saveFileDialogWithFilter(
         `${baseName}.docx`,
@@ -68,7 +68,12 @@ export function useExport(options: UseExportOptions) {
         const buffer = await blob.arrayBuffer()
         const base64 = arrayBufferToBase64(buffer)
         await fileWriteBinary(chosenPath, base64)
-        showToast('Exported as DOCX', 'success')
+        const stats = imageStats.skipped > 0
+          ? ` — images: ${imageStats.embedded} embedded, ${imageStats.skipped} skipped (${imageStats.firstSkipReason})`
+          : imageStats.embedded > 0
+            ? ` — images: ${imageStats.embedded} embedded`
+            : ''
+        showToast(`Exported as DOCX${stats}`, imageStats.skipped > 0 ? 'error' : 'success')
       }
     } catch (e) {
       showToast(`DOCX export failed: ${e instanceof Error ? e.message : String(e)}`)

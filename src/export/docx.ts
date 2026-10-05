@@ -90,15 +90,16 @@ function toLocalPath(src: string): string | null {
  * Read local image bytes via the file_read_binary command. JS fetch() cannot
  * read asset:// URLs in a packaged Tauri build (the asset protocol only serves
  * <img>/resource loading), which silently dropped every local image from DOCX
- * exports — the bytes must be round-tripped through Rust instead. Returns null
- * on any failure so callers can skip the single image without aborting.
+ * exports — the bytes must be round-tripped through Rust instead. Returns the
+ * error message on failure so the caller can surface *why* an image was
+ * skipped instead of failing the whole export silently.
  */
-async function readLocalImageBytes(path: string): Promise<Uint8Array | null> {
+async function readLocalImageBytes(path: string): Promise<{ bytes: Uint8Array } | { error: string }> {
   try {
     const { fileReadBinary } = await import('../tauri/commands')
-    return base64ToBytes(await fileReadBinary(path))
-  } catch {
-    return null
+    return { bytes: base64ToBytes(await fileReadBinary(path)) }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
   }
 }
 
@@ -133,12 +134,15 @@ export function resolveDocxImageSize(img: {
 
 /**
  * Load one <img> for DOCX embedding. Returns null when the bytes cannot be
- * resolved (unreadable file, unsupported format) — callers skip the image
- * with a console.warn instead of failing the whole export.
+ * resolved — `onSkip` (when given) receives the reason, so the export layer
+ * can surface *why* instead of failing the whole export silently.
  */
-export async function loadDocxImage(img: HTMLImageElement): Promise<DocxImageRunData | null> {
+export async function loadDocxImage(
+  img: HTMLImageElement,
+  onSkip?: (reason: string) => void,
+): Promise<DocxImageRunData | null> {
   const src = img.getAttribute('src') || ''
-  if (!src) return null
+  if (!src) { onSkip?.('no src attribute'); return null }
 
   let bytes: Uint8Array | null = null
   let format: DocxImageFormat | null = null
@@ -150,20 +154,26 @@ export async function loadDocxImage(img: HTMLImageElement): Promise<DocxImageRun
   } else {
     const localPath = toLocalPath(src)
     if (localPath) {
-      bytes = await readLocalImageBytes(localPath)
+      const loaded = await readLocalImageBytes(localPath)
+      if ('error' in loaded) { onSkip?.(`read failed: ${loaded.error}`); return null }
+      bytes = loaded.bytes
     } else if (/^(https?|blob):/.test(src)) {
       // Remote/blob fetch only works in dev. The packaged build's CSP
       // (connect-src 'self') blocks remote image requests, so they fail and
       // the image is skipped with a console.warn — a known, accepted limit.
       bytes = await fetchImageBytes(src)
+      if (!bytes) { onSkip?.('remote fetch failed (CSP blocks connect-src in packaged build)'); return null }
+    } else {
+      onSkip?.(`unrecognized src scheme: ${src.slice(0, 80)}`)
+      return null
     }
   }
-  if (!bytes || bytes.length === 0) return null
+  if (!bytes || bytes.length === 0) { onSkip?.('empty image file'); return null }
 
   // Trust the magic bytes over the declared mime: the data ends up in the
   // docx package labelled with this format, and a wrong label corrupts it.
   format = sniffImageFormat(bytes) || format
-  if (!format) return null
+  if (!format) { onSkip?.('unsupported image format (magic bytes)'); return null }
 
   const size = resolveDocxImageSize(img)
   return { data: bytes, format, width: size.width, height: size.height }
@@ -279,11 +289,21 @@ async function captureElement(el: HTMLElement): Promise<{ data: Uint8Array; widt
   }
 }
 
+/** Outcome of the inline-image pre-pass in exportDOCX. */
+export interface DocxImageStats {
+  embedded: number
+  skipped: number
+  firstSkipReason: string
+}
+
 /**
  * Export editor content as DOCX.
  * Captures mermaid SVGs and KaTeX as embedded images from the live DOM.
+ * Returns the blob plus inline-image stats so the caller can tell the user
+ * when images were dropped (and why) instead of shipping a silently
+ * incomplete document.
  */
-export async function exportDOCX(editorEl: HTMLElement): Promise<Blob> {
+export async function exportDOCX(editorEl: HTMLElement): Promise<{ blob: Blob; imageStats: DocxImageStats }> {
   const clone = cloneEditorContent(editorEl)
 
   // Attach clone to DOM for rendering
@@ -318,15 +338,19 @@ export async function exportDOCX(editorEl: HTMLElement): Promise<Blob> {
 
     // Pre-load all inline images. The clone is attached to the document, so
     // layout-based sizing (clientWidth/Height) is available here. A failed
-    // image is skipped with a warning — one broken path must not abort the
+    // image is skipped and counted — one broken path must not abort the
     // whole export (the walk below simply emits no run for it).
     const images = new Map<Element, DocxImageRunData>()
+    const imageStats: DocxImageStats = { embedded: 0, skipped: 0, firstSkipReason: '' }
     for (const img of Array.from(clone.querySelectorAll('img'))) {
-      const loaded = await loadDocxImage(img as HTMLImageElement)
+      const loaded = await loadDocxImage(img as HTMLImageElement, (reason) => {
+        imageStats.skipped++
+        if (!imageStats.firstSkipReason) imageStats.firstSkipReason = `${img.getAttribute('src') || '(no src)'}: ${reason}`
+        console.warn(`[export:docx] skipped image: ${img.getAttribute('src') || '(no src)'} — ${reason}`)
+      })
       if (loaded) {
         images.set(img, loaded)
-      } else {
-        console.warn(`[export:docx] skipped unresolvable image: ${img.getAttribute('src') || '(no src)'}`)
+        imageStats.embedded++
       }
     }
 
@@ -389,7 +413,7 @@ export async function exportDOCX(editorEl: HTMLElement): Promise<Blob> {
       }],
     })
 
-    return Packer.toBlob(docxDoc)
+    return { blob: await Packer.toBlob(docxDoc), imageStats }
   } finally {
     document.body.removeChild(clone)
   }

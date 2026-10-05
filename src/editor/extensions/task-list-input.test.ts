@@ -41,7 +41,15 @@ function findTextEndPos(editor: Editor, text: string): number {
 function typeText(editor: Editor, text: string) {
   const { view } = editor
   const { from, to } = view.state.selection
-  view.someProp('handleTextInput', f => f(view, from, to, text))
+  view.someProp('handleTextInput', f =>
+    f(
+      view,
+      from,
+      to,
+      text,
+      () => view.state.tr.insertText(text, from, to),
+    ),
+  )
 }
 
 function firstTaskList(editor: Editor): PMNode | null {

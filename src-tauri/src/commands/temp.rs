@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::Manager;
 
@@ -10,13 +10,62 @@ pub struct TempFile {
     pub modified: u64,
 }
 
+/// Reject filenames that could escape the crash-recovery temp directory:
+/// path separators, parent components, or absolute paths. Must stay a bare
+/// file name. Pure function (no AppHandle) so it is directly unit-testable.
+fn validate_temp_filename(filename: &str) -> Result<(), String> {
+    let reject = || format!("Invalid temp filename: {filename:?}");
+    if filename.is_empty() {
+        return Err(reject());
+    }
+    let path = Path::new(filename);
+    if path.is_absolute()
+        || filename.contains('/')
+        || filename.contains('\\')
+        // Substring check is deliberately strict: it also rejects names that
+        // merely contain "..", which is acceptable for recovery copies.
+        || filename.contains("..")
+    {
+        return Err(reject());
+    }
+    Ok(())
+}
+
+/// Decide whether `raw_path` may be deleted, given the app's temp root.
+/// Pure function (no AppHandle) so it is directly unit-testable.
+///
+/// Both sides are canonicalized before the prefix check: on macOS
+/// `std::env::temp_dir()` resolves to `/var/folders/...` while canonicalize
+/// yields `/private/var/folders/...` — normalizing only the input side would
+/// reject every legitimate delete. Canonicalizing both also resolves symlinks,
+/// so a symlink planted inside temp cannot smuggle an outside target through.
+fn delete_temp_file_checked(raw_path: &str, temp_dir: &Path) -> Result<(), String> {
+    let target = PathBuf::from(raw_path);
+    // Nonexistent paths are a no-op: recovery cleanup may run twice or race
+    // with another window cleaning up the same file.
+    if !target.exists() {
+        return Ok(());
+    }
+    let canonical_target = target.canonicalize().map_err(|e| e.to_string())?;
+    let canonical_root = temp_dir.canonicalize().map_err(|e| e.to_string())?;
+    if canonical_target.starts_with(&canonical_root) {
+        fs::remove_file(&canonical_target).map_err(|e| e.to_string())
+    } else {
+        Err(format!(
+            "Refusing to delete path outside temp directory: {raw_path}"
+        ))
+    }
+}
+
 /// Save content to a temp file in the app data directory for crash recovery.
 #[tauri::command]
 pub fn temp_save(app: tauri::AppHandle, filename: String, content: String) -> Result<String, String> {
+    validate_temp_filename(&filename)?;
     let data_dir = app.path().app_data_dir()
         .map_err(|e| e.to_string())?;
     let temp_dir = data_dir.join("temp");
     fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    // Safe join: validate_temp_filename guarantees a bare file name.
     let file_path = temp_dir.join(&filename);
     fs::write(&file_path, &content).map_err(|e| e.to_string())?;
     Ok(file_path.to_string_lossy().to_string())
@@ -53,55 +102,84 @@ pub fn list_temp_files(app: tauri::AppHandle) -> Result<Vec<TempFile>, String> {
     Ok(files)
 }
 
-/// Delete a temp file after recovery or cleanup.
+/// Delete a temp file after recovery or cleanup. The temp root is resolved
+/// from the AppHandle; the frontend still passes the full path.
 #[tauri::command]
-pub fn delete_temp_file(path: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
-    // Safety check: only delete files inside the temp directory
-    if p.exists() && p.to_string_lossy().contains("temp") {
-        fs::remove_file(&p).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+pub fn delete_temp_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let data_dir = app.path().app_data_dir()
+        .map_err(|e| e.to_string())?;
+    delete_temp_file_checked(&path, &data_dir.join("temp"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Per-pid test root so parallel/f repeated runs never collide, and
+    /// leftovers from a crashed run are never reused.
+    fn unique_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("{name}_{}", std::process::id()))
+    }
+
     #[test]
-    fn delete_temp_file_safety_check_refuses_non_temp_paths() {
-        let dir = std::env::temp_dir().join("mdeditor_safe_guard");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("protected.md");
-        fs::write(&path, "important").unwrap();
+    fn validate_temp_filename_rejects_traversal() {
+        assert!(validate_temp_filename("../x.md").is_err());
+        assert!(validate_temp_filename("a/../b.md").is_err());
+        assert!(validate_temp_filename("..").is_err());
+        assert!(validate_temp_filename("sub/dir.md").is_err());
+        assert!(validate_temp_filename("sub\\dir.md").is_err());
+        assert!(validate_temp_filename("/etc/passwd").is_err());
+        assert!(validate_temp_filename("").is_err());
+    }
 
-        // Path does NOT contain "temp", so file should NOT be deleted
-        let result = delete_temp_file(path.to_string_lossy().to_string());
-        assert!(result.is_ok());
-        assert!(path.exists(), "File should still exist outside temp dir");
-
-        fs::remove_file(&path).ok();
-        fs::remove_dir(&dir).ok();
+    #[test]
+    fn validate_temp_filename_accepts_bare_names() {
+        assert!(validate_temp_filename("Untitled-ab12cd34.md").is_ok());
+        assert!(validate_temp_filename("note.md").is_ok());
+        // Dots are fine as long as there is no parent component.
+        assert!(validate_temp_filename("a.b.c.md").is_ok());
     }
 
     #[test]
     fn delete_temp_file_deletes_inside_temp_dir() {
-        let dir = std::env::temp_dir().join("mdeditor_temp_test");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("temp").join("deleteme.md");
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, "disposable").unwrap();
+        let root = unique_dir("mdeditor_temp_root");
+        fs::create_dir_all(&root).unwrap();
+        let inner = root.join("deleteme.md");
+        fs::write(&inner, "disposable").unwrap();
 
-        let result = delete_temp_file(path.to_string_lossy().to_string());
+        let result = delete_temp_file_checked(inner.to_string_lossy().as_ref(), &root);
         assert!(result.is_ok());
-        assert!(!path.exists(), "File in temp dir should be deleted");
+        assert!(!inner.exists(), "file inside temp dir should be deleted");
 
-        fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn delete_temp_file_refuses_existing_file_outside_temp() {
+        let root = unique_dir("mdeditor_temp_root");
+        let outside_dir = unique_dir("mdeditor_temp_outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+        let path = outside_dir.join("protected.md");
+        fs::write(&path, "important").unwrap();
+
+        let result = delete_temp_file_checked(path.to_string_lossy().as_ref(), &root);
+        assert!(result.is_err(), "deleting outside the temp root must fail");
+        assert!(path.exists(), "file outside temp dir must not be deleted");
+
+        fs::remove_file(&path).ok();
+        fs::remove_dir_all(&outside_dir).ok();
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]
     fn delete_temp_file_nonexistent_is_ok() {
-        let result = delete_temp_file("/tmp/temp/nonexistent_file_99999.md".into());
+        // The nonexistent check short-circuits before canonicalization, so the
+        // temp root need not exist either.
+        let root = unique_dir("mdeditor_temp_root_absent");
+        let missing = root.join("nonexistent_file_99999.md");
+        let result = delete_temp_file_checked(missing.to_string_lossy().as_ref(), &root);
         assert!(result.is_ok());
+        assert!(!missing.exists());
     }
 }

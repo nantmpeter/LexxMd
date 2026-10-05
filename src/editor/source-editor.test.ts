@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { undo } from '@codemirror/commands'
 import { createSourceEditor } from './source-editor'
 
 describe('createSourceEditor', () => {
@@ -54,11 +55,37 @@ describe('createSourceEditor', () => {
     expect(editor.getCursorLine()).toBe(2)
   })
 
-  it('fires onChange when content changes', () => {
+  it('fires onChange when content changes via a real edit', () => {
+    let callCount = 0
+    const onChangeEditor = createSourceEditor(parent, () => { callCount++ })
+    onChangeEditor.view.dispatch({
+      changes: { from: 0, to: 0, insert: 'x' },
+    })
+    expect(callCount).toBe(1)
+    onChangeEditor.destroy()
+  })
+
+  it('undo after setContent keeps the loaded content', () => {
+    editor.setContent('# Hello World')
+    undo(editor.view)
+    expect(editor.getContent()).toBe('# Hello World')
+  })
+
+  it('a later setContent resets the undo stack so earlier content cannot resurface', () => {
+    editor.setContent('A')
+    // Simulate a real user edit
+    editor.view.dispatch({ changes: { from: 0, to: 1, insert: 'A2' } })
+    // Load a different file (fresh session)
+    editor.setContent('B')
+    undo(editor.view)
+    expect(editor.getContent()).toBe('B')
+  })
+
+  it('setContent does not fire onChange', () => {
     let callCount = 0
     const onChangeEditor = createSourceEditor(parent, () => { callCount++ })
     onChangeEditor.setContent('trigger change')
-    expect(callCount).toBeGreaterThan(0)
+    expect(callCount).toBe(0)
     onChangeEditor.destroy()
   })
 

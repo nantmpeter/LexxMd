@@ -130,8 +130,8 @@ pub fn run() {
                         Some("About Lexx"),
                         Some(
                             AboutMetadataBuilder::new()
-                                .name("Lexx")
-                                .version(env!("CARGO_PKG_VERSION"))
+                                .name(Some("Lexx"))
+                                .version(Some(env!("CARGO_PKG_VERSION")))
                                 .build(),
                         ),
                     )?,

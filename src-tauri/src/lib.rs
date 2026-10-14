@@ -1,7 +1,7 @@
 pub mod commands;
 
 #[cfg(target_os = "macos")]
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadataBuilder, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Emit an event only to the currently focused webview window, falling back
@@ -123,6 +123,19 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let app_menu = Submenu::with_items(app, "App", true, &[
+                    // macOS convention: About sits at the very top of the
+                    // app menu and shows the app version in a native panel.
+                    &PredefinedMenuItem::about(
+                        app,
+                        Some("About Lexx"),
+                        Some(
+                            AboutMetadataBuilder::new()
+                                .name("Lexx")
+                                .version(env!("CARGO_PKG_VERSION"))
+                                .build(),
+                        ),
+                    )?,
+                    &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::hide(app, None)?,
                     &PredefinedMenuItem::hide_others(app, None)?,
                     &PredefinedMenuItem::separator(app)?,

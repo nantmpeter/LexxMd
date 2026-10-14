@@ -96,6 +96,7 @@ export function useShortcuts(actions: ShortcutActions) {
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'n') { e.preventDefault(); actions.handleNew() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'w') { e.preventDefault(); actions.handleClose() }
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === ',') { e.preventDefault(); actions.openPreferences() }
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === '/') { e.preventDefault(); actions.toggleSourceMode() }
     if (e.key === 'Escape') {
       // Layered Escape: an open overlay (QuickOpen / Settings / FindBar)
       // closes itself on Escape; the window-level handler must not also exit

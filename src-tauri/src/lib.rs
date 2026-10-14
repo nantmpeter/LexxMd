@@ -175,7 +175,7 @@ pub fn run() {
                 ])?;
 
                 let view_menu = Submenu::with_items(app, "View", true, &[
-                    &MenuItem::with_id(app, "vs", "Source Mode", true, None::<String>)?,
+                    &MenuItem::with_id(app, "vs", "Source Mode", true, Some("CmdOrCtrl+/"))?,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(app, "vf", "Toggle Full Screen", true, None::<String>)?,
                 ])?;

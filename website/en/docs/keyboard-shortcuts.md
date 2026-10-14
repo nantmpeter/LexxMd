@@ -40,10 +40,11 @@ Exports have no keyboard shortcuts — use the **File** menu:
 
 | Shortcut | macOS | Windows/Linux | Action |
 |----------|-------|---------------|--------|
+| Toggle source mode | Cmd+/ | Ctrl+/ | Switch between visual and source mode |
 | Exit source mode | Esc | Esc | Return to visual mode |
 | Fullscreen | | | View → Toggle Full Screen |
 
-Source mode is toggled from the **View** menu or the status bar button; there is no keyboard shortcut for entering it.
+Source mode is toggled with Cmd/Ctrl+/ from the **View** menu or the status bar button; Esc exits back to visual mode.
 
 ## Markdown Input Rules
 

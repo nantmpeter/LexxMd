@@ -211,3 +211,30 @@ describe('useShortcuts IME composition guard', () => {
     expect(actions.handlePrint).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('Cmd+/ toggles source mode', () => {
+  let wrapper: ReturnType<typeof mount> | null = null
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
+  it('calls toggleSourceMode on Cmd+/', () => {
+    const actions = createActions()
+    wrapper = mountShortcuts(actions)
+
+    fireKeydown({ key: '/', metaKey: true })
+
+    expect(actions.toggleSourceMode).toHaveBeenCalledTimes(1)
+  })
+
+  it('is ignored while composing', () => {
+    const actions = createActions()
+    wrapper = mountShortcuts(actions)
+
+    fireKeydown({ key: '/', metaKey: true, isComposing: true })
+
+    expect(actions.toggleSourceMode).not.toHaveBeenCalled()
+  })
+})

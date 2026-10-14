@@ -115,10 +115,14 @@ pub fn delete_temp_file(app: tauri::AppHandle, path: String) -> Result<(), Strin
 mod tests {
     use super::*;
 
-    /// Per-pid test root so parallel/f repeated runs never collide, and
-    /// leftovers from a crashed run are never reused.
+    /// Per-pid AND per-call test root: cargo runs tests in parallel threads,
+    /// and two tests sharing one path race their create/remove_dir_all calls
+    /// (Windows locks directories during removal, failing create_dir_all).
     fn unique_dir(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("{name}_{}", std::process::id()))
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static SEQ: AtomicU32 = AtomicU32::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("{name}_{}_{seq}", std::process::id()))
     }
 
     #[test]

@@ -84,7 +84,7 @@ Goal: only ship AI when it is clearly integrated, local-first, and useful.
 **Validation criteria before swapping** (spike behind the existing `mermaid-block.ts` interface; KaTeX math blocks untouched):
 
 1. Render the repo's test diagrams + 2–3 real user docs with pele; visually compare against mermaid output.
-2. The >500 kB chunk warning disappears (per-type registration).
+2. ~~The >500 kB chunk warning disappears~~ — MEASURED 2026-10-17: the warning is driven by the whole-app main chunk (3.4 MB: katex/codemirror/docx), not mermaid, and stays. The real, measured win is total JS assets 6.8 MB → 4.7 MB (−31 %) with the main chunk net +67 KB (pele in, mermaid out).
 3. Diagram-dense document open time measurably improves.
 4. Existing mermaid documents render correctly — spot-check every diagram type in use.
 5. Fallback plan: the swap is contained in one extension; revert is a single commit.

@@ -80,6 +80,7 @@ Goal: only ship AI when it is clearly integrated, local-first, and useful.
 - **Pele**: https://github.com/obsidianmd/pele — Mermaid 12.1.0-syntax-compatible SVG renderer by the Obsidian team (open-sourced 2026-10-05, MIT). Zero runtime dependencies, per-diagram-type registration, claimed 100–500× faster than mermaid.js.
 - **Why**: mermaid is the main contributor to the >500 kB chunk warning, and its transitive dependency chain (dompurify/cytoscape) caused the October dependency breakage. Pele removes both problem classes.
 - **Timing**: not for 0.2.0 — Pele was 12 days old at evaluation. Revisit once it has ~2 months of hardening inside Obsidian's production releases.
+- **Trial result (2026-10-17)**: integrated and reverted the same day. Rendering itself was sound (all diagram types, <8 ms per diagram, correct security stripping), but Pele's visual style diverges enough from Mermaid's that the rendered diagrams were rejected on sight. Revisit only when Pele offers Mermaid-compatible theming/visual parity — the bundle (-31 % total JS) and speed wins do not outweigh users re-learning how their diagrams look.
 
 **Validation criteria before swapping** (spike behind the existing `mermaid-block.ts` interface; KaTeX math blocks untouched):
 

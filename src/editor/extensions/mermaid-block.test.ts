@@ -193,3 +193,18 @@ describe('KaTeX trust hardening', () => {
     expect(classTokens).not.toContain('evil')
   })
 })
+
+describe('mermaidThemeFor', () => {
+  it('follows an explicit dark or light preference', async () => {
+    const { mermaidThemeFor } = await import('./mermaid-block')
+    expect(mermaidThemeFor('dark', false)).toBe('dark')
+    expect(mermaidThemeFor('light', true)).toBe('default')
+  })
+
+  it('falls back to the OS preference for the system theme', async () => {
+    const { mermaidThemeFor } = await import('./mermaid-block')
+    expect(mermaidThemeFor('system', true)).toBe('dark')
+    expect(mermaidThemeFor('system', false)).toBe('default')
+    expect(mermaidThemeFor(null, false)).toBe('default')
+  })
+})

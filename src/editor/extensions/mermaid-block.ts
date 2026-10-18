@@ -29,17 +29,57 @@ function classifyDiagram(svg: SVGSVGElement, container: HTMLElement) {
 
 // -- Mermaid --
 
-let mermaidReady = false
+/** Resolve the mermaid theme from the app theme attribute + OS preference. */
+export function mermaidThemeFor(dataTheme: string | null, systemDark: boolean): 'default' | 'dark' {
+  if (dataTheme === 'dark') return 'dark'
+  if (dataTheme === 'light') return 'default'
+  return systemDark ? 'dark' : 'default'
+}
+
+let mermaidTheme: 'default' | 'dark' = 'default'
 
 function initMermaid() {
-  if (!mermaidReady) {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'default',
-      securityLevel: 'strict',
-    })
-    mermaidReady = true
-  }
+  mermaidTheme = mermaidThemeFor(
+    document.documentElement.getAttribute('data-theme'),
+    window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
+  )
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: mermaidTheme,
+    securityLevel: 'strict',
+  })
+}
+
+/** Live mermaid NodeViews, re-rendered when the app theme flips. */
+const activeMermaidViews = new Set<{ rerender: () => void }>()
+
+function applyMermaidTheme(): void {
+  const next = mermaidThemeFor(
+    document.documentElement.getAttribute('data-theme'),
+    window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
+  )
+  if (next === mermaidTheme) return
+  mermaidTheme = next
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: next,
+    securityLevel: 'strict',
+  })
+  for (const view of activeMermaidViews) view.rerender()
+}
+
+let themeListenersAttached = false
+
+function attachThemeListeners(): void {
+  if (themeListenersAttached) return
+  themeListenersAttached = true
+  // Preferences writes data-theme for light/dark; "system" leaves the value
+  // at "system" and only the OS media query flips, so both signals watch.
+  new MutationObserver(applyMermaidTheme).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  })
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', applyMermaidTheme)
 }
 
 let svgIdCounter = 0
@@ -132,6 +172,20 @@ function createRichCodeBlockNodeView(props: NodeViewRendererProps): ProseMirrorN
   let renderTimeout: ReturnType<typeof setTimeout> | null = null
   let currentMode: 'edit' | 'render' | null = null
 
+  const mermaidThemeHandle = lang === 'mermaid'
+    ? (() => {
+        attachThemeListeners()
+        const handle = {
+          rerender: () => {
+            lastRenderedSource = ''
+            if (currentMode === 'render') scheduleRender()
+          },
+        }
+        activeMermaidViews.add(handle)
+        return handle
+      })()
+    : null
+
   function getSource(): string {
     const pos = getPos()
     if (pos == null) return ''
@@ -221,6 +275,7 @@ function createRichCodeBlockNodeView(props: NodeViewRendererProps): ProseMirrorN
 
     destroy() {
       if (renderTimeout) clearTimeout(renderTimeout)
+      if (mermaidThemeHandle) activeMermaidViews.delete(mermaidThemeHandle)
     },
   }
 }

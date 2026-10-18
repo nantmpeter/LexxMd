@@ -1,7 +1,7 @@
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import type { NodeViewRendererProps } from '@tiptap/core'
 import type { NodeView as ProseMirrorNodeView } from '@tiptap/pm/view'
-import { render as peleRender } from 'pele'
+import mermaid from 'mermaid'
 import katex from 'katex'
 
 function classifyDiagram(svg: SVGSVGElement, container: HTMLElement) {
@@ -27,14 +27,28 @@ function classifyDiagram(svg: SVGSVGElement, container: HTMLElement) {
 
 // ── Renderers ──────────────────────────────────────────────────
 
-// -- Mermaid (rendered by Pele, https://github.com/obsidianmd/pele) --
+// -- Mermaid --
+
+let mermaidReady = false
+
+function initMermaid() {
+  if (!mermaidReady) {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'default',
+      securityLevel: 'strict',
+    })
+    mermaidReady = true
+  }
+}
+
+let svgIdCounter = 0
 
 async function renderMermaid(definition: string): Promise<{ svg: string } | { error: string }> {
-  // Pele is synchronous and needs no DOM; the async signature is kept so the
-  // NodeView consumer is unchanged. Parse errors throw with a line-numbered
-  // message, which the error box below displays.
+  initMermaid()
+  const id = `mermaid-svg-${++svgIdCounter}`
   try {
-    const { svg } = peleRender(definition)
+    const { svg } = await mermaid.render(id, definition)
     return { svg }
   } catch (err: any) {
     return { error: err?.message ?? String(err) }

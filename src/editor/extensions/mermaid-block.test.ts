@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { render as peleRender } from 'pele'
+import mermaid from 'mermaid'
 import { renderKaTeX } from './mermaid-block'
 
 const COMPLEX_DIAGRAM = `flowchart TD
@@ -105,23 +105,28 @@ const COMPLEX_DIAGRAM = `flowchart TD
 
 describe('mermaid rendering', () => {
   beforeAll(() => {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'default',
+      securityLevel: 'loose',
+    })
   })
 
   it('renders a simple flowchart', async () => {
-    const { svg } = peleRender('flowchart TD\n  A-->B')
+    const { svg } = await mermaid.render('test-simple', 'flowchart TD\n  A-->B')
     expect(svg).toContain('<svg')
     expect(svg).toContain('</svg>')
   })
 
   it('renders the complex architecture diagram', async () => {
-    const { svg } = peleRender(COMPLEX_DIAGRAM)
+    const { svg } = await mermaid.render('test-complex', COMPLEX_DIAGRAM)
     expect(svg).toContain('<svg')
     expect(svg).toContain('门户')
     expect(svg).toContain('行业业务组件')
   })
 
   it('renders with Chinese characters', async () => {
-    const { svg } = peleRender('flowchart TD\n  A["中文测试"]-->B["你好世界"]')
+    const { svg } = await mermaid.render('test-chinese', 'flowchart TD\n  A["中文测试"]-->B["你好世界"]')
     expect(svg).toContain('中文测试')
     expect(svg).toContain('你好世界')
   })
@@ -139,7 +144,7 @@ describe('mermaid rendering', () => {
         B2["D"]
     end
     S1 --> S2`
-    const { svg } = peleRender(diagram)
+    const { svg } = await mermaid.render('test-subgraph', diagram)
     expect(svg).toContain('<svg')
     expect(svg).toContain('Sub One')
   })

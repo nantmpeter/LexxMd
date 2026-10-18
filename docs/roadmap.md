@@ -72,3 +72,19 @@ Goal: only ship AI when it is clearly integrated, local-first, and useful.
 - Add model management UX if local models remain the direction.
 - Keep AI optional and non-blocking for the core editor.
 - Document privacy and local/remote processing boundaries before release.
+
+## 0.3 Candidates (added 2026-10-14)
+
+### Swap Mermaid → Pele for diagram rendering
+
+- **Pele**: https://github.com/obsidianmd/pele — Mermaid 12.1.0-syntax-compatible SVG renderer by the Obsidian team (open-sourced 2026-10-05, MIT). Zero runtime dependencies, per-diagram-type registration, claimed 100–500× faster than mermaid.js.
+- **Why**: mermaid is the main contributor to the >500 kB chunk warning, and its transitive dependency chain (dompurify/cytoscape) caused the October dependency breakage. Pele removes both problem classes.
+- **Timing**: not for 0.2.0 — Pele was 12 days old at evaluation. Revisit once it has ~2 months of hardening inside Obsidian's production releases.
+
+**Validation criteria before swapping** (spike behind the existing `mermaid-block.ts` interface; KaTeX math blocks untouched):
+
+1. Render the repo's test diagrams + 2–3 real user docs with pele; visually compare against mermaid output.
+2. The >500 kB chunk warning disappears (per-type registration).
+3. Diagram-dense document open time measurably improves.
+4. Existing mermaid documents render correctly — spot-check every diagram type in use.
+5. Fallback plan: the swap is contained in one extension; revert is a single commit.
